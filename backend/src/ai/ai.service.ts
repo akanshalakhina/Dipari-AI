@@ -611,7 +611,7 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
 
     const encodedPrompt = encodeURIComponent(cleanPrompt);
     const timestamp = Date.now();
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${timestamp}`;
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&model=flux&seed=${timestamp}`;
 
     const durationMs = Date.now() - startedAt;
     this.logger.log(`[AIService] Generated AI image URL (${width}x${height}) in ${durationMs}ms: "${cleanPrompt.substring(0, 90)}..."`);
@@ -619,7 +619,7 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
     return {
       success: true,
       imageUrl,
-      model: 'pollinations-turbo',
+      model: 'pollinations-flux',
     };
   }
 

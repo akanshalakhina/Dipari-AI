@@ -79,7 +79,11 @@ export class SchedulerService implements OnModuleInit {
         details: JSON.stringify({ postId: post.id, platform: data.platform, scheduledTime: scheduledTime.toISOString() }),
       });
     }
-    await this.rabbitmq.enqueueScheduledPost(post.id, scheduledTime);
+    try {
+      await this.rabbitmq.enqueueScheduledPost(post.id, scheduledTime);
+    } catch (rabbitErr: any) {
+      this.logger.warn(`Failed to enqueue post ${post.id} to RabbitMQ: ${rabbitErr.message}`);
+    }
     return { success: true, post };
   }
 
@@ -472,7 +476,11 @@ export class SchedulerService implements OnModuleInit {
     } as any);
 
     this.logger.log(`Organic post scheduled for 10:00 AM slot: ${post.id} at ${slotResult.formattedLocal} (${slotResult.isoString})`);
-    await this.rabbitmq.enqueueScheduledPost(post.id, scheduledTime);
+    try {
+      await this.rabbitmq.enqueueScheduledPost(post.id, scheduledTime);
+    } catch (rabbitErr: any) {
+      this.logger.warn(`Failed to enqueue organic post ${post.id} to RabbitMQ: ${rabbitErr.message}`);
+    }
 
     return {
       success: true,
@@ -530,7 +538,11 @@ export class SchedulerService implements OnModuleInit {
       } as any);
 
       posts.push(post);
-      await this.rabbitmq.enqueueScheduledPost(post.id, slot.targetDate);
+      try {
+        await this.rabbitmq.enqueueScheduledPost(post.id, slot.targetDate);
+      } catch (rabbitErr: any) {
+        this.logger.warn(`Failed to enqueue organic batch post ${post.id} to RabbitMQ: ${rabbitErr.message}`);
+      }
       this.logger.log(`[OrganicBatch] Post ${post.id} scheduled for slot ${slot.slotIndex + 1}: ${slot.formattedLocal}`);
     }
 
@@ -631,9 +643,13 @@ export class SchedulerService implements OnModuleInit {
               ? 'Show the exact apparel or accessory described by the business; use a model only to display that product and avoid empty generic showrooms.'
               : 'Show only the exact product or service described by the business; do not substitute generic stock imagery or another industry.';
       const promptText = `Create a square social media advertising image for ${businessName}. Category: ${category}. Exact offering: ${productsServices}. Main visual concept: ${theme}. ${subjectRules} Brand tone: ${brandTone}. Photorealistic, polished commercial advertising photography, clear subject, no readable text, no watermark, no unrelated props.`;
-      const result = await this.aiService.generateImage(promptText, { aspect_ratio: '1:1' });
-      if (result?.imageUrl) return result.imageUrl;
-      return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=1080&height=1080&nologo=true&seed=${Date.now()}_${postIndex}`;
+      try {
+        const result = await this.aiService.generateImage(promptText, { aspect_ratio: '1:1' });
+        if (result?.imageUrl) return result.imageUrl;
+      } catch (err: any) {
+        this.logger.warn(`AI Image generation threw error in buildImageUrl: ${err.message}`);
+      }
+      return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=1080&height=1080&nologo=true&model=flux&seed=${Date.now()}_${postIndex}`;
     };
 
     const posts: any[] = [];
@@ -730,8 +746,7 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
 
       const imageUrl = await buildImageUrl(blueprint.imageTheme, posts.length);
 
-      const scheduledTime = new Date(cursor);
-      scheduledTime.setHours(targetHours, targetMinutes, 0, 0);
+      const scheduledTime = this.getUtcDateForLocalTime(cursor, targetHours, targetMinutes, data.timezone || 'Asia/Kolkata');
 
       const newPost = await this.firebase.createScheduledPost({
         businessId: data.businessId,
@@ -748,11 +763,15 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
         timezone: data.timezone || 'Asia/Kolkata',
         batchId,
         batchType: 'INSTANT_WEEK',
-        publishLogs: [{ timestamp: new Date().toISOString(), action: 'INSTANT_PLAN_CREATED', details: `${blueprint.tag} post ${posts.length + 1}/${targetCount} scheduled for ${scheduledTime.toLocaleString()}` }],
+        publishLogs: [{ timestamp: new Date().toISOString(), action: 'INSTANT_PLAN_CREATED', details: `${blueprint.tag} post ${posts.length + 1}/${targetCount} scheduled for ${scheduledTime.toISOString()}` }],
       } as any);
 
       posts.push(newPost);
-      await this.rabbitmq.enqueueScheduledPost(newPost.id, scheduledTime);
+      try {
+        await this.rabbitmq.enqueueScheduledPost(newPost.id, scheduledTime);
+      } catch (rabbitErr: any) {
+        this.logger.warn(`Failed to enqueue scheduled post ${newPost.id} to RabbitMQ: ${rabbitErr.message}`);
+      }
     }
 
     return { success: true, batchId, count: posts.length, posts };
@@ -885,6 +904,11 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
         ? post.scheduledTime
         : new Date(post.scheduledTime?._seconds ? post.scheduledTime._seconds * 1000 : post.scheduledTime);
 
+      if (!scheduledTime || isNaN(scheduledTime.getTime())) {
+        this.logger.warn(`Skipping calendar entry ${post.id || 'unknown'} due to invalid scheduledTime: ${JSON.stringify(post.scheduledTime)}`);
+        continue;
+      }
+
       const dateKey = scheduledTime.toISOString().split('T')[0]; // YYYY-MM-DD
       if (!byDate[dateKey]) byDate[dateKey] = [];
       byDate[dateKey].push({
@@ -909,5 +933,58 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
       totalDays: calendar.length,
       calendar,
     };
+  }
+
+  private getUtcDateForLocalTime(date: Date, hour: number, minute: number, timeZone: string): Date {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      const parts = formatter.formatToParts(date);
+      const map: Record<string, string> = {};
+      for (const p of parts) {
+        if (p.type !== 'literal') map[p.type] = p.value;
+      }
+      const year = parseInt(map.year, 10);
+      const month = parseInt(map.month, 10);
+      const day = parseInt(map.day, 10);
+
+      const targetAsUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+      const refDate = new Date(targetAsUtcMs);
+
+      const offsetFormatter = new Intl.DateTimeFormat('en-US', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false,
+      });
+      const offsetParts = offsetFormatter.formatToParts(refDate);
+      const oMap: Record<string, string> = {};
+      for (const p of offsetParts) {
+        if (p.type !== 'literal') oMap[p.type] = p.value;
+      }
+      const oYear = parseInt(oMap.year, 10);
+      const oMonth = parseInt(oMap.month, 10);
+      const oDay = parseInt(oMap.day, 10);
+      const oHour = parseInt(oMap.hour, 10);
+      const oMinute = parseInt(oMap.minute, 10);
+      const oSecond = parseInt(oMap.second, 10);
+
+      const localAsUtc = Date.UTC(oYear, oMonth - 1, oDay, oHour, oMinute, oSecond);
+      const offsetMs = localAsUtc - targetAsUtcMs;
+
+      return new Date(targetAsUtcMs - offsetMs);
+    } catch {
+      const fallback = new Date(date);
+      fallback.setHours(hour, minute, 0, 0);
+      return fallback;
+    }
   }
 }

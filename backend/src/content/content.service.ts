@@ -135,7 +135,7 @@ export class ContentService {
     } catch (err: any) {
       this.logger.error(`[ContentService] Image generation & compositing error for ${businessId}: ${err.message}`);
       // Fallback: return a curated structured graphic URL
-      return `https://image.pollinations.ai/prompt/${encodeURIComponent(`Commercial ad creative background for business ${businessId}`)}?width=1080&height=1080&nologo=true`;
+      return `https://image.pollinations.ai/prompt/${encodeURIComponent(`Commercial ad creative background for business ${businessId}`)}?width=1080&height=1080&nologo=true&model=flux`;
     }
   }
 
@@ -274,7 +274,8 @@ export class ContentService {
       APPROVED: ['SCHEDULED', 'DRAFT', 'REJECTED', 'APPROVED'],
       SCHEDULED: ['PUBLISHED', 'FAILED', 'APPROVED', 'DRAFT', 'SCHEDULED'],
       PUBLISHED: ['PUBLISHED'],
-      FAILED: ['DRAFT', 'SCHEDULED', 'FAILED'],
+      FAILED: ['DRAFT', 'SCHEDULED', 'FAILED', 'PUBLISHED'],
+      CANCELLED: ['DRAFT', 'SCHEDULED', 'PUBLISHED', 'CANCELLED'],
     };
 
     const allowed = validTransitions[currentStatus?.toUpperCase()] || [];
@@ -1070,15 +1071,15 @@ Return ONLY valid JSON (no markdown, no code fences):
     // Determine overall success
     const isSuccess = Object.values(results).some((r: any) => r?.success !== false);
 
-    // Update entry status to POSTED
+    // Update entry status to PUBLISHED
     if (isSuccess) {
-      await this.editPost(id, { status: 'POSTED', publishedAt: new Date() }, user);
+      await this.editPost(id, { status: 'PUBLISHED', publishedAt: new Date() }, user);
     }
 
     await this.firebase.createCalendarAuditTrail({
       action: isSuccess ? 'POST_PUBLISHED_NOW' : 'POST_PUBLISH_FAILED',
       previousValue: { status: entry.status },
-      newValue: { status: isSuccess ? 'POSTED' : entry.status, platform, results },
+      newValue: { status: isSuccess ? 'PUBLISHED' : entry.status, platform, results },
       user,
       businessId,
       calendarEntryId: id,
