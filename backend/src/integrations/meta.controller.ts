@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Query, HttpException, HttpStatus, Res } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Query, HttpException, HttpStatus, Res, Header } from '@nestjs/common';
 import { Response } from 'express';
 import { IntegrationsService } from './integrations.service';
 
@@ -241,6 +241,7 @@ export class MetaController {
   // ─── Webhooks ─────────────────────────────────────────────────────────────────
 
   @Get('webhooks/leads')
+  @Header('Content-Type', 'text/plain')
   verifyWebhook(
     @Query('hub.mode') mode: string,
     @Query('hub.verify_token') token: string,
