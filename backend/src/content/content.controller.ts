@@ -14,6 +14,7 @@ import {
 } from '@nestjs/common';
 import { ContentService, CalendarFilterOptions } from './content.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ProfileCompletedGuard } from '../auth/profile-completed.guard';
 
 @UseGuards(JwtAuthGuard)
 @Controller('content')
@@ -21,6 +22,7 @@ export class ContentController {
   constructor(private readonly contentService: ContentService) {}
 
   /** POST /content/generate-graphic — Generate 1080x1080 branded graphic and upload PNG buffer to Firebase Storage */
+  @UseGuards(ProfileCompletedGuard)
   @Post('generate-graphic')
   @HttpCode(HttpStatus.OK)
   async generateGraphic(
@@ -36,6 +38,7 @@ export class ContentController {
   }
 
   /** POST /content/generate-instagram — Generate Instagram caption & 15 hashtags using Gemini API and Firestore context */
+  @UseGuards(ProfileCompletedGuard)
   @Post('generate-instagram')
   @HttpCode(HttpStatus.OK)
   async generateInstagram(
@@ -54,6 +57,7 @@ export class ContentController {
   // ─── Monthly Content Strategy Endpoints ─────────────────────────────────────
 
   /** POST /content/strategy/generate — Generate monthly strategy using Business Context */
+  @UseGuards(ProfileCompletedGuard)
   @Post('strategy/generate')
   @HttpCode(HttpStatus.OK)
   async generateStrategy(@Body() body: { businessId: string }) {
@@ -75,6 +79,7 @@ export class ContentController {
   // ─── Content Calendar Generation Endpoints ─────────────────────────────────
 
   /** POST /content/calendar/generate — Generate 30-day content calendar */
+  @UseGuards(ProfileCompletedGuard)
   @Post('calendar/generate')
   @HttpCode(HttpStatus.OK)
   async generateCalendar(
@@ -91,6 +96,7 @@ export class ContentController {
   }
 
   /** POST /content/generate-plan — Alias for backward compatibility */
+  @UseGuards(ProfileCompletedGuard)
   @Post('generate-plan')
   @HttpCode(HttpStatus.OK)
   async generatePlan(
@@ -105,6 +111,17 @@ export class ContentController {
       body.durationWeeks,
       body.industry,
     );
+  }
+
+  /** POST /content/calendar/initial-week — idempotent Meta-connect calendar */
+  @UseGuards(ProfileCompletedGuard)
+  @Post('calendar/initial-week')
+  @HttpCode(HttpStatus.OK)
+  async generateInitialWeek(@Body() body: { businessId: string }) {
+    if (!body?.businessId) {
+      throw new BadRequestException('businessId is required');
+    }
+    return this.contentService.ensureInitialWeeklyCalendar(body.businessId);
   }
 
   /** GET /content/calendar?businessId=xxx&page=1&limit=20... — Fetch calendar with pagination & filters */
@@ -221,14 +238,27 @@ export class ContentController {
   }
 
   /** POST /content/calendar/:id/regenerate & POST /content/:id/regenerate */
+  @UseGuards(ProfileCompletedGuard)
   @Post('calendar/:id/regenerate')
   async regenerateCalendarEntry(@Param('id') id: string) {
     return this.contentService.regenerateSinglePost(id);
   }
 
+  @UseGuards(ProfileCompletedGuard)
   @Post(':id/regenerate')
   async regeneratePostShort(@Param('id') id: string) {
     return this.contentService.regenerateSinglePost(id);
+  }
+
+  /** POST /content/calendar/:id/post-now — Immediately publish to Facebook and/or Instagram via Meta Graph API */
+  @UseGuards(ProfileCompletedGuard)
+  @Post('calendar/:id/post-now')
+  @HttpCode(HttpStatus.OK)
+  async postNow(
+    @Param('id') id: string,
+    @Body() body: { platform?: string },
+  ) {
+    return this.contentService.postNow(id, body?.platform || 'both');
   }
 
   /** DELETE /content/calendar/:id & DELETE /content/:id */

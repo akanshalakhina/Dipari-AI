@@ -6,7 +6,6 @@ import {
   Building,
   Eye,
   EyeOff,
-  ArrowRight,
   ArrowLeft,
   CheckCircle,
   AlertCircle,
@@ -21,11 +20,12 @@ interface AuthScreensProps {
   defaultView?: 'login' | 'register';
   onAuthSuccess: (user: any) => void;
   addToast: (title: string, message: string, type: 'success' | 'alert' | 'info') => void;
+  onBackToHome?: () => void;
 }
 
 type AuthView = 'login' | 'register' | 'forgot' | 'verify';
 
-export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreensProps) {
+export function AuthScreens({ defaultView, onAuthSuccess, addToast, onBackToHome }: AuthScreensProps) {
   const [view, setView] = useState<AuthView>(defaultView || 'login');
   
   useEffect(() => {
@@ -195,6 +195,38 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
         padding: '40px 20px',
         position: 'relative'
       }}>
+        {/* Back to Home Button */}
+        {onBackToHome && (
+          <button
+            type="button"
+            onClick={onBackToHome}
+            style={{
+              position: 'absolute',
+              top: 24,
+              left: 24,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+              background: 'rgba(255, 255, 255, 0.85)',
+              border: '1px solid var(--color-border)',
+              padding: '10px 18px',
+              borderRadius: 12,
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              color: 'var(--color-text-main)',
+              cursor: 'pointer',
+              boxShadow: 'var(--shadow-soft)',
+              transition: 'all 0.2s ease',
+              zIndex: 10
+            }}
+            onMouseEnter={e => e.currentTarget.style.transform = 'translateX(-3px)'}
+            onMouseLeave={e => e.currentTarget.style.transform = 'none'}
+          >
+            <ArrowLeft size={18} />
+            <span>Back to Home</span>
+          </button>
+        )}
+
         <div style={{ maxWidth: 460, width: '100%', display: 'flex', flexDirection: 'column', gap: 24 }}>
           {/* Header */}
           <div style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
@@ -255,60 +287,83 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
 
           {/* ── LOGIN VIEW ─────────────────────────────────────────── */}
           {view === 'login' && (
-            (
-              <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div>
-                  <label style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Business Email</label>
-                  <div style={{ position: 'relative' }}>
-                    <Mail size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-                    <input
-                      className="form-input"
-                      style={{ paddingLeft: 40 }}
-                      type="email"
-                      placeholder="name@company.com"
-                      value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      required
-                    />
-                  </div>
+            <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>Business Email</label>
+                <div style={{ position: 'relative' }}>
+                  <Mail size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input
+                    className="form-input"
+                    style={{ paddingLeft: 42, background: '#ffffff', color: '#0f172a', border: '1.5px solid #cbd5e1', borderRadius: 10, fontSize: '0.9rem' }}
+                    type="email"
+                    placeholder="name@company.com"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    required
+                  />
                 </div>
+              </div>
 
-                <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <label style={{ fontSize: '0.85rem', fontWeight: 500, opacity: 0.9 }}>Password</label>
-                    <span onClick={() => setView('forgot')} style={{ fontSize: '0.8rem', color: 'var(--color-primary)', cursor: 'pointer', fontWeight: 500 }}>
-                      Forgot Password?
-                    </span>
-                  </div>
-                  <div style={{ position: 'relative' }}>
-                    <Lock size={16} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }} />
-                    <input
-                      className="form-input"
-                      style={{ paddingLeft: 40, paddingRight: 40 }}
-                      type={showPassword ? 'text' : 'password'}
-                      placeholder="••••••••"
-                      value={password}
-                      onChange={e => setPassword(e.target.value)}
-                      required
-                    />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)}
-                      style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', opacity: 0.6, display: 'flex' }}>
-                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <label style={{ fontSize: '0.85rem', fontWeight: 600, color: '#334155' }}>Password</label>
+                  <span onClick={() => setView('forgot')} style={{ fontSize: '0.8rem', color: '#6366f1', cursor: 'pointer', fontWeight: 600 }}>
+                    Forgot Password?
+                  </span>
                 </div>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.85rem' }}>
-                  <input type="checkbox" id="rememberMe" checked={rememberMe} onChange={e => setRememberMe(e.target.checked)} style={{ cursor: 'pointer' }} />
-                  <label htmlFor="rememberMe" style={{ cursor: 'pointer', opacity: 0.8 }}>Remember Me</label>
+                <div style={{ position: 'relative' }}>
+                  <Lock size={18} style={{ position: 'absolute', left: 14, top: '50%', transform: 'translateY(-50%)', color: '#94a3b8' }} />
+                  <input
+                    className="form-input"
+                    style={{ paddingLeft: 42, paddingRight: 42, background: '#ffffff', color: '#0f172a', border: '1.5px solid #cbd5e1', borderRadius: 10, fontSize: '0.9rem' }}
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={e => setPassword(e.target.value)}
+                    required
+                  />
+                  <button type="button" onClick={() => setShowPassword(!showPassword)}
+                    style={{ position: 'absolute', right: 14, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#64748b', display: 'flex' }}>
+                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
                 </div>
+              </div>
 
-                <button className="btn-primary" type="submit" disabled={loading} style={{ justifyContent: 'center', padding: '12px', marginTop: 8 }}>
-                  {loading ? <Cpu className="animate-spin" size={16} /> : <span>Sign In to Dashboard</span>}
-                  {!loading && <ArrowRight size={16} />}
-                </button>
-              </form>
-            )
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: '0.85rem', marginTop: 2 }}>
+                <input
+                  type="checkbox"
+                  id="rememberMe"
+                  checked={rememberMe}
+                  onChange={e => setRememberMe(e.target.checked)}
+                  style={{ width: 16, height: 16, borderRadius: 4, accentColor: '#6366f1', cursor: 'pointer', margin: 0 }}
+                />
+                <label htmlFor="rememberMe" style={{ cursor: 'pointer', color: '#475569', fontWeight: 500, userSelect: 'none' }}>Remember Me</label>
+              </div>
+
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  padding: '13px 20px',
+                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                  border: 'none',
+                  borderRadius: 12,
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  fontSize: '1rem',
+                  cursor: loading ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                  marginTop: 8,
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {loading ? 'Submitting...' : 'Submit'}
+              </button>
+            </form>
           )}
           {/* ── REGISTER VIEW ──────────────────────────────────────── */}
           {view === 'register' && (
@@ -384,9 +439,28 @@ export function AuthScreens({ defaultView, onAuthSuccess, addToast }: AuthScreen
                 </div>
               </div>
 
-              <button className="btn-primary" type="submit" disabled={loading} style={{ justifyContent: 'center', padding: '12px', marginTop: 8 }}>
-                {loading ? <Cpu className="animate-spin" size={16} /> : <span>Create Account</span>}
-                {!loading && <ArrowRight size={16} />}
+              <button
+                type="submit"
+                disabled={loading}
+                style={{
+                  width: '100%',
+                  padding: '13px 20px',
+                  background: 'linear-gradient(135deg, #6366f1 0%, #4f46e5 100%)',
+                  border: 'none',
+                  borderRadius: 12,
+                  color: '#ffffff',
+                  fontWeight: 700,
+                  fontSize: '1rem',
+                  cursor: loading ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  boxShadow: '0 4px 14px rgba(99, 102, 241, 0.35)',
+                  marginTop: 8,
+                  transition: 'all 0.2s ease'
+                }}
+              >
+                {loading ? 'Submitting...' : 'Submit'}
               </button>
             </form>
           )}

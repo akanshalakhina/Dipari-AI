@@ -1,5 +1,5 @@
 import React from 'react';
-import { Tag, DollarSign, Globe, Check, Palette } from 'lucide-react';
+import { Tag, IndianRupee, Globe, Check, Palette } from 'lucide-react';
 
 interface SmartInputControlsProps {
   currentField: string;
@@ -213,16 +213,16 @@ export const SmartInputControls: React.FC<SmartInputControlsProps> = ({
 
     case 'monthlyBudget': {
       const presets = [
-        '₹10,000 ($120/mo)',
-        '₹25,000 ($300/mo)',
-        '₹50,000 ($600/mo)',
-        '₹1,00,000 ($1200/mo)',
-        '₹2,50,000 ($3000/mo)',
+        '₹10,000/month',
+        '₹25,000/month',
+        '₹50,000/month',
+        '₹1,00,000/month',
+        '₹2,50,000/month',
       ];
       return (
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <DollarSign size={12} /> Recommended Monthly Budget Presets:
+            <IndianRupee size={12} /> Recommended Monthly Budget Presets:
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {presets.map((b) => (
@@ -439,6 +439,117 @@ export const SmartInputControls: React.FC<SmartInputControlsProps> = ({
                 }}
               >
                 + {usp}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case 'targetAudience': {
+      const audiencePresets = [
+        'Women aged 20-40 interested in fashion & beauty',
+        'Young Professionals & College Students (18-30)',
+        'Small Business Owners & Entrepreneurs',
+        'Fitness Enthusiasts & Health Conscious Individuals',
+        'Parents with young children & families',
+        'Tech-savvy consumers & digital buyers',
+      ];
+      return (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <Tag size={12} /> Suggested Target Audiences (Click to select):
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {audiencePresets.map((aud) => (
+              <button
+                key={aud}
+                type="button"
+                onClick={() => onSelectOption(aud)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  fontSize: '0.8rem',
+                  border: '1px solid var(--color-border)',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--color-text)',
+                  cursor: 'pointer',
+                }}
+              >
+                + {aud}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case 'productsServices': {
+      const productPresets = [
+        'Apparel, Handbags & Fashion Accessories',
+        'Skincare, Serums & Beauty Care Products',
+        'Organic Food, Snacks & Healthy Beverages',
+        'Digital Software, SaaS Apps & Automation Tools',
+        'Consulting, Marketing & Design Services',
+      ];
+      return (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 8 }}>
+            Popular Product / Service Categories:
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {productPresets.map((ps) => (
+              <button
+                key={ps}
+                type="button"
+                onClick={() => onSelectOption(ps)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  fontSize: '0.8rem',
+                  border: '1px solid var(--color-border)',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--color-text)',
+                  cursor: 'pointer',
+                }}
+              >
+                + {ps}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    case 'competitors': {
+      const competitorPresets = [
+        'Top Online E-commerce Brands in Market',
+        'Local Market Leaders & Boutiques',
+        'Established International Competitors',
+        'Direct D2C Brand Competitors',
+      ];
+      return (
+        <div style={{ marginTop: 12 }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginBottom: 8 }}>
+            Competitor Type Presets:
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {competitorPresets.map((comp) => (
+              <button
+                key={comp}
+                type="button"
+                onClick={() => onSelectOption(comp)}
+                style={{
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  fontSize: '0.8rem',
+                  border: '1px solid var(--color-border)',
+                  background: 'rgba(255, 255, 255, 0.05)',
+                  color: 'var(--color-text)',
+                  cursor: 'pointer',
+                }}
+              >
+                + {comp}
               </button>
             ))}
           </div>

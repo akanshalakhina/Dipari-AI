@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { createCanvas } from '@napi-rs/canvas';
+import { createCanvas, loadImage } from '@napi-rs/canvas';
+import axios from 'axios';
 
 export interface BrandedGraphicOptions {
   businessName: string;
@@ -20,6 +21,10 @@ export interface BrandedGraphicOptions {
     website?: string;
     address?: string;
   };
+  brandColors?: string[];
+  bgImageUrl?: string;
+  bgImageBuffer?: Buffer;
+  aspectRatio?: '1:1' | '4:5' | '9:16';
 }
 
 export interface VibePalette {
@@ -39,9 +44,26 @@ export class GraphicGeneratorService {
   private readonly logger = new Logger(GraphicGeneratorService.name);
 
   /**
-   * Returns tailored color palettes based on brand vibe.
+   * Returns tailored color palettes based on user brand colors or brand vibe.
    */
-  private getPaletteForVibe(vibe?: string): VibePalette {
+  private getPalette(brandColors?: string[], vibe?: string): VibePalette {
+    if (Array.isArray(brandColors) && brandColors.length > 0) {
+      const primary = brandColors[0] || '#4F46E5';
+      const secondary = brandColors[1] || '#7C3AED';
+
+      return {
+        bgStart: primary,
+        bgEnd: '#0f172a',
+        accent: secondary,
+        badgeBg: 'rgba(255, 255, 255, 0.15)',
+        badgeText: '#ffffff',
+        cardBg: 'rgba(15, 23, 42, 0.78)',
+        cardBorder: secondary,
+        textColor: '#ffffff',
+        subtextColor: '#e2e8f0',
+      };
+    }
+
     const v = (vibe || '').toLowerCase();
 
     if (v.includes('luxurious') || v.includes('elite') || v.includes('premium')) {
@@ -58,7 +80,7 @@ export class GraphicGeneratorService {
       };
     }
 
-    if (v.includes('eco') || v.includes('sustainable') || v.includes('mindful')) {
+    if (v.includes('eco') || v.includes('sustainable') || v.includes('mindful') || v.includes('natural') || v.includes('organic')) {
       return {
         bgStart: '#064e3b',
         bgEnd: '#022c22',
@@ -86,7 +108,7 @@ export class GraphicGeneratorService {
       };
     }
 
-    if (v.includes('bold') || v.includes('high-energy') || v.includes('casual')) {
+    if (v.includes('bold') || v.includes('high-energy') || v.includes('casual') || v.includes('energetic')) {
       return {
         bgStart: '#1e1b4b',
         bgEnd: '#0f172a',
@@ -100,7 +122,7 @@ export class GraphicGeneratorService {
       };
     }
 
-    // Default: Professional Corporate Navy (#0b2240) & Cyan (#0076a3)
+    // Default: Professional Corporate Navy & Cyan
     return {
       bgStart: '#0b2240',
       bgEnd: '#07172c',
@@ -115,192 +137,324 @@ export class GraphicGeneratorService {
   }
 
   /**
-   * Generates a 1080x1080 pixel branded social graphic as a PNG Buffer.
+   * Safely loads an image buffer from URL or Buffer for Canvas rendering.
+   */
+  private async fetchImageCanvasBuffer(source?: string | Buffer): Promise<any | null> {
+    if (!source) return null;
+    try {
+      if (Buffer.isBuffer(source)) {
+        return await loadImage(source);
+      }
+      if (typeof source === 'string') {
+        if (source.startsWith('data:image')) {
+          const base64Data = source.split(',')[1];
+          const buffer = Buffer.from(base64Data, 'base64');
+          return await loadImage(buffer);
+        }
+        // Fetch remote AI-generated image buffer with browser headers & fallback
+        let imageBuffer: Buffer | null = null;
+        let fetchUrl = source;
+
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          try {
+            const response = await axios.get(fetchUrl, {
+              responseType: 'arraybuffer',
+              timeout: 5_000,
+              headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+              },
+            });
+            imageBuffer = Buffer.from(response.data);
+            break;
+          } catch (fetchErr: any) {
+            this.logger.warn(`[GraphicGeneratorService] Image fetch attempt ${attempt} failed: ${fetchErr.message}`);
+            if (attempt === 2) break;
+            if (fetchUrl.includes('model=flux')) {
+              fetchUrl = fetchUrl.replace('model=flux', 'model=turbo');
+            }
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+          }
+        }
+
+        if (imageBuffer) {
+          return await loadImage(imageBuffer);
+        }
+      }
+    } catch (err: any) {
+      this.logger.warn(`Failed to fetch/load image canvas buffer: ${err.message}`);
+    }
+    return null;
+  }
+
+  /**
+   * Generates a platform-tailored, high-quality branded social graphic as a PNG Buffer.
+   * Composites:
+   * 1. AI-generated Visual Scene Background
+   * 2. Real Uploaded User Logo (or brand mark)
+   * 3. Glassmorphic Text Card with Headline, Offer, & Subheading
+   * 4. 3D CTA Button
+   * 5. Contact Details Footer Bar
    */
   async generateBrandedGraphicBuffer(data: BrandedGraphicOptions): Promise<Buffer> {
-    const width = 1080;
-    const height = 1080;
+    let width = 1080;
+    let height = 1080;
+
+    if (data.aspectRatio === '4:5') {
+      height = 1350;
+    } else if (data.aspectRatio === '9:16') {
+      height = 1920;
+    }
+
     const canvas = createCanvas(width, height);
     const ctx = canvas.getContext('2d');
 
-    const palette = this.getPaletteForVibe(data.vibe);
+    const palette = this.getPalette(data.brandColors, data.vibe);
 
-    // 1. Background Gradient
-    const bgGradient = ctx.createLinearGradient(0, 0, width, height);
-    bgGradient.addColorStop(0, palette.bgStart);
-    bgGradient.addColorStop(1, palette.bgEnd);
-    ctx.fillStyle = bgGradient;
-    ctx.fillRect(0, 0, width, height);
+    // 1. Render Background (AI Visual Scene or Gradient)
+    let aiVisualLoaded = false;
+    const bgImageSource = data.bgImageBuffer || data.bgImageUrl;
+    if (bgImageSource) {
+      const bgImg = await this.fetchImageCanvasBuffer(bgImageSource);
+      if (bgImg) {
+        // Draw AI visual background aspect-fill
+        const imgRatio = bgImg.width / bgImg.height;
+        const canvasRatio = width / height;
+        let drawW = width;
+        let drawH = height;
+        let drawX = 0;
+        let drawY = 0;
 
-    // 2. Radial Geometric Glowing Aura (Center)
-    const auraGradient = ctx.createRadialGradient(
-      width / 2,
-      height / 2,
-      50,
-      width / 2,
-      height / 2,
-      480,
-    );
-    auraGradient.addColorStop(0, palette.accent + '33'); // 20% opacity hex
-    auraGradient.addColorStop(1, 'transparent');
-    ctx.fillStyle = auraGradient;
-    ctx.fillRect(0, 0, width, height);
+        if (imgRatio > canvasRatio) {
+          drawW = height * imgRatio;
+          drawX = (width - drawW) / 2;
+        } else {
+          drawH = width / imgRatio;
+          drawY = (height - drawH) / 2;
+        }
 
-    // 3. Outer Frame Border
+        ctx.drawImage(bgImg, drawX, drawY, drawW, drawH);
+        aiVisualLoaded = true;
+
+        // Apply dark vignette gradients at top (for logo/badge) and bottom (for text card & contact bar)
+        const topVignette = ctx.createLinearGradient(0, 0, 0, height * 0.35);
+        topVignette.addColorStop(0, 'rgba(15, 23, 42, 0.88)');
+        topVignette.addColorStop(1, 'transparent');
+        ctx.fillStyle = topVignette;
+        ctx.fillRect(0, 0, width, height * 0.35);
+
+        const bottomVignette = ctx.createLinearGradient(0, height * 0.45, 0, height);
+        bottomVignette.addColorStop(0, 'transparent');
+        bottomVignette.addColorStop(1, 'rgba(15, 23, 42, 0.92)');
+        ctx.fillStyle = bottomVignette;
+        ctx.fillRect(0, height * 0.45, width, height * 0.55);
+      }
+    }
+
+    if (!aiVisualLoaded) {
+      // Fallback base gradient
+      const bgGradient = ctx.createLinearGradient(0, 0, width, height);
+      bgGradient.addColorStop(0, palette.bgStart);
+      bgGradient.addColorStop(1, palette.bgEnd);
+      ctx.fillStyle = bgGradient;
+      ctx.fillRect(0, 0, width, height);
+
+      // Radial glowing aura
+      const aura = ctx.createRadialGradient(width / 2, height / 2, 50, width / 2, height / 2, 480);
+      aura.addColorStop(0, palette.accent + '44');
+      aura.addColorStop(1, 'transparent');
+      ctx.fillStyle = aura;
+      ctx.fillRect(0, 0, width, height);
+    }
+
+    // 2. Frame Border Accent
     ctx.strokeStyle = palette.cardBorder;
-    ctx.lineWidth = 12;
-    ctx.strokeRect(40, 40, width - 80, height - 80);
+    ctx.lineWidth = 8;
+    ctx.strokeRect(30, 30, width - 60, height - 60);
 
-    // 4. Central Glassmorphism Card Frame
-    const cardX = 80;
-    const cardY = 110;
-    const cardW = width - 160;
-    const cardH = height - 250;
+    // 3. Top Header Bar: Real Logo / Business Brand Pill
+    const headerY = 55;
+    let logoDrawn = false;
 
-    ctx.fillStyle = palette.cardBg;
-    ctx.beginPath();
-    ctx.roundRect(cardX, cardY, cardW, cardH, 28);
-    ctx.fill();
+    if (data.logoUrl) {
+      const logoImg = await this.fetchImageCanvasBuffer(data.logoUrl);
+      if (logoImg) {
+        const logoBoxW = 180;
+        const logoBoxH = 60;
+        const logoBoxX = 50;
 
-    ctx.strokeStyle = palette.cardBorder;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.roundRect(cardX, cardY, cardW, cardH, 28);
-    ctx.stroke();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+        ctx.beginPath();
+        ctx.roundRect(logoBoxX, headerY, logoBoxW, logoBoxH, 12);
+        ctx.fill();
 
-    // 5. Category/Niche Badge Pill (Top Center of Card)
+        ctx.strokeStyle = palette.accent;
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Fit logo cleanly inside logoBox
+        const padding = 8;
+        const availW = logoBoxW - padding * 2;
+        const availH = logoBoxH - padding * 2;
+        const scale = Math.min(availW / logoImg.width, availH / logoImg.height);
+        const lw = logoImg.width * scale;
+        const lh = logoImg.height * scale;
+        const lx = logoBoxX + (logoBoxW - lw) / 2;
+        const ly = headerY + (logoBoxH - lh) / 2;
+
+        ctx.drawImage(logoImg, lx, ly, lw, lh);
+        logoDrawn = true;
+      }
+    }
+
+    // Category / Niche Pill (Top Right)
     const categoryText = (data.niche || 'EXCLUSIVE PROMOTION').toUpperCase();
-    ctx.font = 'bold 24px sans-serif';
-    const catWidth = ctx.measureText(categoryText).width + 48;
-    const catX = width / 2 - catWidth / 2;
-    const catY = cardY + 50;
+    ctx.font = 'bold 22px sans-serif';
+    const catW = ctx.measureText(categoryText).width + 36;
+    const catX = width - 50 - catW;
+    const catY = headerY + 8;
 
     ctx.fillStyle = palette.badgeBg;
     ctx.beginPath();
-    ctx.roundRect(catX, catY, catWidth, 44, 22);
+    ctx.roundRect(catX, catY, catW, 42, 21);
     ctx.fill();
 
     ctx.strokeStyle = palette.accent;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(catX, catY, catWidth, 44, 22);
+    ctx.roundRect(catX, catY, catW, 42, 21);
     ctx.stroke();
 
     ctx.fillStyle = palette.badgeText;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(categoryText, width / 2, catY + 22);
+    ctx.fillText(categoryText, catX + catW / 2, catY + 21);
 
-    // 6. Business Name (Centered, Large Bold)
-    const busName = data.businessName || 'DIPARI AI Business';
-    ctx.fillStyle = palette.textColor;
-    ctx.font = 'bold 52px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-
-    const busNameY = catY + 70;
-    this.drawWrappedText(ctx, busName, width / 2, busNameY, cardW - 80, 58);
-
-    // 7. Offer Box Frame (Centered Container)
-    const offerBoxY = busNameY + 110;
-    const offerBoxH = 250;
-    const offerBoxW = cardW - 80;
-    const offerBoxX = width / 2 - offerBoxW / 2;
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-    ctx.beginPath();
-    ctx.roundRect(offerBoxX, offerBoxY, offerBoxW, offerBoxH, 20);
-    ctx.fill();
-
-    ctx.strokeStyle = palette.accent;
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.roundRect(offerBoxX, offerBoxY, offerBoxW, offerBoxH, 20);
-    ctx.stroke();
-
-    // Offer Headline & Offer Text
-    ctx.fillStyle = palette.accent;
-    ctx.font = 'bold 24px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('⚡ SPECIAL PROMOTIONAL OFFER', width / 2, offerBoxY + 30);
-
-    ctx.fillStyle = palette.textColor;
-    ctx.font = 'bold 40px sans-serif';
-    const mainHeadline = data.headline || data.offerText || 'GET 30% OFF YOUR FIRST ORDER!';
-    this.drawWrappedText(ctx, mainHeadline, width / 2, offerBoxY + 80, offerBoxW - 40, 50);
-
-    if (data.description) {
-      ctx.fillStyle = palette.subtextColor;
-      ctx.font = 'bold 22px sans-serif';
-      ctx.fillText(`✨ ${data.description}`, width / 2, offerBoxY + offerBoxH - 35);
+    // If logo was not present, show Business Name in Top Left
+    if (!logoDrawn) {
+      const busNameStr = (data.businessName || 'BRAND').toUpperCase();
+      ctx.fillStyle = palette.textColor;
+      ctx.font = 'bold 30px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`✨ ${busNameStr}`, 50, headerY + 28);
     }
 
-    // 8. 3D-Styled Call-to-Action Button (Bottom of Card)
-    const footerY = cardY + cardH - 75;
-    const btnW = 440;
-    const btnH = 54;
-    const btnX = width / 2 - btnW / 2;
+    // 4. Central / Lower Glassmorphism Card Frame for Marketing Copy
+    const cardX = 60;
+    const cardW = width - 120;
+    const cardH = height > 1400 ? 560 : 420;
+    const cardY = height - cardH - 120;
 
-    // 3D Shadow Layer
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+    ctx.fillStyle = palette.cardBg;
     ctx.beginPath();
-    ctx.roundRect(btnX + 4, footerY + 6, btnW, btnH, 27);
+    ctx.roundRect(cardX, cardY, cardW, cardH, 24);
     ctx.fill();
 
-    // 3D Button Surface Gradient
-    const btnGradient = ctx.createLinearGradient(btnX, footerY, btnX, footerY + btnH);
-    btnGradient.addColorStop(0, palette.accent);
-    btnGradient.addColorStop(1, '#0284c7');
-    ctx.fillStyle = btnGradient;
+    ctx.strokeStyle = palette.cardBorder;
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.roundRect(btnX, footerY, btnW, btnH, 27);
-    ctx.fill();
-
-    // 3D Button Highlight Border
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.roundRect(btnX, footerY, btnW, btnH, 27);
+    ctx.roundRect(cardX, cardY, cardW, cardH, 24);
     ctx.stroke();
 
-    const rawCta = (data.ctaType || 'CLAIM_OFFER_NOW').replace(/_/g, ' ');
-    const ctaText = `👉 ${rawCta.toUpperCase()}`;
+    // 5. Business Name / Headline in Card
+    let currentY = cardY + 40;
+
+    ctx.fillStyle = palette.accent;
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText((data.businessName || 'PROMOTION').toUpperCase(), width / 2, currentY);
+    currentY += 36;
+
+    // Main Headline Text
+    ctx.fillStyle = palette.textColor;
+    ctx.font = 'bold 36px sans-serif';
+    const mainHeadline = data.headline || data.offerText || 'SPECIAL OFFER';
+    currentY = this.drawWrappedText(ctx, mainHeadline, width / 2, currentY, cardW - 60, 44);
+    currentY += 16;
+
+    // Offer / Description Subheading
+    if (data.description || data.offerText) {
+      ctx.fillStyle = palette.subtextColor;
+      ctx.font = 'bold 22px sans-serif';
+      const descText = data.description || `Special Offer: ${data.offerText}`;
+      currentY = this.drawWrappedText(ctx, `🔥 ${descText}`, width / 2, currentY, cardW - 80, 30);
+      currentY += 24;
+    }
+
+    // 6. 3D CTA Button inside Card
+    const btnW = Math.min(420, cardW - 80);
+    const btnH = 50;
+    const btnX = width / 2 - btnW / 2;
+    const btnY = cardY + cardH - 80;
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+    ctx.beginPath();
+    ctx.roundRect(btnX + 3, btnY + 4, btnW, btnH, 25);
+    ctx.fill();
+
+    // Surface
+    const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+    btnGrad.addColorStop(0, palette.accent);
+    btnGrad.addColorStop(1, '#0284c7');
+    ctx.fillStyle = btnGrad;
+    ctx.beginPath();
+    ctx.roundRect(btnX, btnY, btnW, btnH, 25);
+    ctx.fill();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    const rawCta = (data.ctaType || 'CLAIM OFFER NOW').replace(/_/g, ' ');
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 24px sans-serif';
+    ctx.font = 'bold 22px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(ctaText, width / 2, footerY + 27);
+    ctx.fillText(`👉 ${rawCta.toUpperCase()}`, width / 2, btnY + 25);
 
-    // 9. Contact Details High-Contrast Footer Section (Question #8)
-    const phone = data.phone || data.contactDetails?.phone || '+1-800-555-0199';
-    const website = data.website || data.contactDetails?.website || 'www.brand.com';
-    const email = data.email || data.contactDetails?.email || 'contact@brand.com';
-    const address = data.address || data.contactDetails?.address || 'Global Hub';
+    // 7. Contact Details High-Contrast Footer Section
+    const phone = data.phone || data.contactDetails?.phone;
+    const website = data.website || data.contactDetails?.website;
+    const email = data.email || data.contactDetails?.email;
 
-    const contactBarY = height - 95;
-    ctx.fillStyle = '#0f172a'; // High contrast dark slate
-    ctx.fillRect(40, contactBarY, width - 80, 55);
+    const contactParts: string[] = [];
+    if (phone && phone !== '+1-800-555-0199') contactParts.push(`📞 ${phone}`);
+    if (website && website !== 'www.brand.com' && website !== 'Not Applicable') contactParts.push(`🌐 ${website}`);
+    if (email) contactParts.push(`✉️ ${email}`);
+
+    if (contactParts.length === 0) {
+      contactParts.push(`✨ ${data.businessName}`);
+      if (data.niche) contactParts.push(`🏷️ ${data.niche}`);
+    }
+
+    const contactText = contactParts.join('   |   ');
+
+    const contactBarY = height - 90;
+    const contactBarH = 50;
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(40, contactBarY, width - 80, contactBarH);
 
     ctx.strokeStyle = palette.accent;
     ctx.lineWidth = 2;
-    ctx.strokeRect(40, contactBarY, width - 80, 55);
-
-    const contactText = `📞 ${phone}  |  🌐 ${website}  |  ✉️ ${email}  |  📍 ${address}`;
+    ctx.strokeRect(40, contactBarY, width - 80, contactBarH);
 
     ctx.fillStyle = '#ffffff';
     ctx.font = 'bold 18px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(contactText, width / 2, contactBarY + 27);
+    ctx.fillText(contactText, width / 2, contactBarY + contactBarH / 2);
 
-    // Convert Canvas to PNG Buffer
     const buffer = canvas.toBuffer('image/png');
-    this.logger.log(`[GraphicGeneratorService] Successfully rendered 1080x1080 graphic buffer (${buffer.length} bytes) for business: ${data.businessName}`);
+    this.logger.log(`[GraphicGeneratorService] Successfully rendered ${width}x${height} graphic buffer (${buffer.length} bytes) for business: ${data.businessName}`);
     return buffer;
   }
 
   /**
    * Utility to wrap and draw multiline centered text.
+   * Returns ending Y coordinate.
    */
   private drawWrappedText(
     ctx: any,
@@ -309,7 +463,7 @@ export class GraphicGeneratorService {
     y: number,
     maxWidth: number,
     lineHeight: number,
-  ) {
+  ): number {
     const words = text.split(' ');
     let line = '';
     let currentY = y;
@@ -328,5 +482,6 @@ export class GraphicGeneratorService {
       }
     }
     ctx.fillText(line.trim(), x, currentY);
+    return currentY + lineHeight;
   }
 }

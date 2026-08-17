@@ -10,6 +10,6 @@ export class CreatePaymentDto {
   businessId?: string;
 
   @IsOptional()
-  @IsUrl({}, { message: 'redirectUrl must be a valid URL' })
+  @IsUrl({ require_tld: false }, { message: 'redirectUrl must be a valid URL' })
   redirectUrl?: string;
 }

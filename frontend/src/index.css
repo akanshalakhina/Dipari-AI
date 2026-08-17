@@ -13,6 +13,7 @@
   --color-bg-start: #f8fafc;
   --color-bg-end: #f1f5f9;
   --color-card-bg: rgba(255, 255, 255, 0.75);
+  --color-bg-card: rgba(255, 255, 255, 0.95);
   --color-card-hover: rgba(255, 255, 255, 0.9);
   --color-border: rgba(15, 23, 42, 0.08);
   --color-text-main: #0f172a;
@@ -39,6 +40,7 @@
   --color-bg-start: #0f172a;
   --color-bg-end: #030712;
   --color-card-bg: rgba(30, 41, 59, 0.5);
+  --color-bg-card: rgba(30, 41, 59, 0.95);
   --color-card-hover: rgba(30, 41, 59, 0.7);
   --color-border: rgba(255, 255, 255, 0.08);
   --color-text-main: #f8fafc;
@@ -200,28 +202,43 @@ h1, h2, h3, h4, h5, h6 {
   width: 100%;
   background: #ffffff;
   border: 1.5px solid #cbd5e1;
-  border-radius: 12px;
-  padding: 14px 18px;
-  color: #1e293b;
+  border-radius: 10px;
+  padding: 12px 16px;
+  color: #0f172a;
   font-family: var(--font-sans);
-  font-size: 0.95rem;
+  font-size: 0.9rem;
   transition: var(--transition-smooth);
 }
 
 .form-input:focus {
   border-color: #6366f1;
   outline: none;
-  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
 }
 
 .form-input::placeholder {
   color: #94a3b8;
 }
 
-.form-input:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 15px rgba(99, 102, 241, 0.15);
+/* Dark Mode / Admin Portal input overrides */
+:root.dark .form-input,
+:root.dark input:not([type="checkbox"]):not([type="radio"]),
+:root.dark textarea,
+:root.dark select {
+  background: #1e293b !important;
+  border: 1px solid #334155 !important;
+  color: #f8fafc !important;
+}
+
+/* Checkbox and Radio resets */
+input[type="checkbox"], input[type="radio"] {
+  width: auto !important;
+  height: auto !important;
+  background: transparent !important;
+  accent-color: #6366f1;
+  margin: 0;
+  cursor: pointer;
 }
 
 /* Custom Notification Toast */

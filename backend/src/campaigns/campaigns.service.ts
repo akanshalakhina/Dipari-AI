@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { FirebaseService } from '../firebase/firebase.service';
 import { IntegrationsService } from '../integrations/integrations.service';
 import { AiService } from '../ai/ai.service';
 import { BusinessIntelligenceService } from '../business/business-intelligence.service';
 import { ContentService } from '../content/content.service';
+import { getPlanLimits } from '../payment/payment.constants';
 
 @Injectable()
 export class CampaignsService {
@@ -33,6 +34,15 @@ export class CampaignsService {
     const business = await this.firebase.getBusinessById(businessId);
     if (!business) {
       throw new NotFoundException('Business workspace not found');
+    }
+
+    // Enforce Plan Limits: Check if plan allows Ad Campaigns (e.g. Free plan has no ad campaign)
+    const planName = (business as any)?.subscriptionPlan || (business as any)?.plan || 'FREE';
+    const limits = getPlanLimits(planName);
+    if (!limits.allowAdCampaigns) {
+      throw new BadRequestException(
+        `Ad campaigns are disabled on your current ${limits.name} plan. Please upgrade to Advance (₹5,900) or Premium (₹11,800) plan to launch Ad Campaigns.`
+      );
     }
 
     const context = await this.businessIntelligence.getBusinessContext(businessId);
@@ -80,6 +90,7 @@ export class CampaignsService {
         location: data.targetLocation,
       },
       aiCreative,
+      businessId,
     );
 
     // 4. Save Campaign
@@ -674,7 +685,7 @@ Return ONLY a valid JSON array.`,
       lastOptimizationRun: business.lastOptimizationRun || null,
       recommendationsCount: recommendations.length,
       activeRules: [
-        'Pause ads with CPC > $2.50',
+        'Pause ads with CPC > ₹200',
         'Increase budget by 10% if ROAS > 3.0',
         'Rotate creative if CTR < 1.0%',
       ],

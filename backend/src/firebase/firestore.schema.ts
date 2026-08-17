@@ -116,6 +116,7 @@ export interface ScheduledOrganicPostDocument {
   businessId: string;
   caption: string;
   headline?: string | null;
+  contentDescription?: string | null;
   hashtags?: string[];
   imageUrl?: string | null;
   platform: string;             // 'facebook' | 'instagram' | 'both'

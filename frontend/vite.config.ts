@@ -7,5 +7,8 @@ export default defineConfig({
   server: {
     port: 3000,
     host: true,
+    allowedHosts: [
+      'remark-organization-discounted-carlos.trycloudflare.com'  //remove it before deploying
+    ],
   },
 });

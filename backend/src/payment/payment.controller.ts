@@ -26,9 +26,8 @@ export class PaymentController {
   ) {}
 
   /**
-   * STEP 3 - Payment Creation API
+   * Payment Creation API (Cashfree Checkout)
    * POST /payment/create
-   * Protected by JWT Auth. Accepts { plan: 'starter' }
    */
   @UseGuards(JwtAuthGuard)
   @Post('create')
@@ -62,51 +61,47 @@ export class PaymentController {
   }
 
   /**
-   * STEP 5 - Webhook Endpoint
+   * Cashfree Webhook / Callback Endpoint
+   * POST /payment/callback
+   */
+  @Post('callback')
+  @HttpCode(HttpStatus.OK)
+  async handleCallback(@Body() payload: any) {
+    this.logger.log('POST /payment/callback received Cashfree notification');
+    return this.paymentService.processCallback(payload);
+  }
+
+  /**
+   * Legacy Webhook Alias
    * POST /payment/webhook
-   * Public route for Instamojo IPN callbacks
    */
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
-  async handleWebhook(@Body() payload: Record<string, string>) {
-    this.logger.log('POST /payment/webhook received IPN notification');
-    return this.paymentService.processWebhook(payload);
+  async handleWebhook(@Body() payload: any) {
+    this.logger.log('POST /payment/webhook received webhook notification');
+    return this.paymentService.processCallback(payload);
   }
 
   /**
-   * STEP 6 - Payment Verification / Status API
-   * GET /payment/status/:paymentRequestId
+   * Payment Verification / Status API
+   * GET /payment/status/:transactionId
    */
-  @Get('status/:paymentRequestId')
-  async getPaymentStatus(@Param('paymentRequestId') paymentRequestId: string) {
-    this.logger.log(`GET /payment/status/${paymentRequestId} called`);
-    return this.paymentService.getPaymentStatus(paymentRequestId);
+  @Get('status/:transactionId')
+  async getPaymentStatus(@Param('transactionId') transactionId: string) {
+    this.logger.log(`GET /payment/status/${transactionId} called`);
+    return this.paymentService.getPaymentStatus(transactionId);
   }
 
   /**
-   * Send UPI Collect Push notification to user's UPI App VPA handle
-   * POST /payment/send-upi-collect
+   * Invoice Download API
+   * GET /payment/invoice/:paymentId
    */
-  @Post('send-upi-collect')
-  async sendUpiCollect(@Body() body: { paymentRequestId: string; vpa: string }) {
-    return this.paymentService.sendUpiCollect(body.paymentRequestId, body.vpa);
-  }
-
-  /**
-   * Confirm UPI Payment Approval
-   * POST /payment/confirm-upi
-   */
-  @Post('confirm-upi')
-  async confirmUpiPayment(@Body() body: { paymentRequestId: string }) {
-    return this.paymentService.confirmUpiPayment(body.paymentRequestId);
-  }
-
   @UseGuards(JwtAuthGuard)
   @Get('invoice/:paymentId')
   async downloadInvoice(@Param('paymentId') paymentId: string, @Res() res: any) {
     const invoice = await this.paymentService.downloadInvoice(paymentId);
     res.set({
-      'Content-Type': 'application/pdf',
+      'Content-Type': 'image/png',
       'Content-Disposition': `attachment; filename="${invoice.fileName}"`,
       'Cache-Control': 'private, no-store',
     });

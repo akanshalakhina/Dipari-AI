@@ -3,7 +3,6 @@ import { BusinessService } from './business.service';
 import { BusinessIntelligenceService } from './business-intelligence.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
-@UseGuards(JwtAuthGuard)
 @Controller('business')
 export class BusinessController {
   constructor(
@@ -16,7 +15,7 @@ export class BusinessController {
     return this.businessService.getQuestionsList(lang);
   }
 
-  /** Direct 10-Question Onboarding submission endpoint (/api/business/onboarding) */
+  @UseGuards(JwtAuthGuard)
   @Post('onboarding')
   async submitOnboardingDirect(@Body() body: any) {
     const businessId = body.businessId || body.workspaceId || body.id || 'default_business';

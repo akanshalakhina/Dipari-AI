@@ -101,7 +101,7 @@ export default function LiveCampaigns({ businessId, addToast }: LiveCampaignsPro
                       </span>
                     </td>
                     <td style={{ padding: '20px 24px', color: 'var(--color-text-muted)' }}>{c.objective}</td>
-                    <td style={{ padding: '20px 24px', fontWeight: 700 }}>${c.dailyBudget}/day</td>
+                    <td style={{ padding: '20px 24px', fontWeight: 700 }}>₹{Number(c.dailyBudget || 0).toLocaleString('en-IN')}/day</td>
                     <td style={{ padding: '20px 24px' }}>
                       <span style={{ color: c.healthScore > 90 ? 'var(--color-accent)' : '#fff', fontWeight: 600 }}>
                         {c.healthScore ? `${c.healthScore}%` : 'N/A'}

@@ -1197,7 +1197,15 @@ export class FirebaseService implements OnModuleInit {
       .where('businessId', '==', businessId)
       .get();
     const results = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    return results.sort((a: any, b: any) => (b.createdAt?.toDate?.()?.getTime?.() || 0) - (a.createdAt?.toDate?.()?.getTime?.() || 0));
+    const timestamp = (value: any) => {
+      if (!value) return 0;
+      if (value instanceof Date) return value.getTime();
+      if (typeof value.toDate === 'function') return value.toDate().getTime();
+      if (typeof value._seconds === 'number') return value._seconds * 1000;
+      const parsed = new Date(value).getTime();
+      return Number.isNaN(parsed) ? 0 : parsed;
+    };
+    return results.sort((a: any, b: any) => timestamp(b.createdAt) - timestamp(a.createdAt));
   }
 
   async getLeadById(id: string) {

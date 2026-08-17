@@ -314,7 +314,11 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
     blueprintId?: string,
     userIdentifier = 'Owner',
   ): Promise<BusinessBlueprintRecord> {
-    const history = await this.getBlueprintHistory(businessId);
+    let history = await this.getBlueprintHistory(businessId);
+    if (!history.length) {
+      await this.generateBusinessBlueprint(businessId);
+      history = await this.getBlueprintHistory(businessId);
+    }
     if (!history.length) {
       throw new NotFoundException(`No blueprints found for business ${businessId}`);
     }
@@ -376,69 +380,118 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
    * This is the single source of truth consumed by all downstream AI services.
    */
   async getBusinessContext(businessId: string) {
-    let profile = await this.firebase.getBusinessProfile(businessId);
-    if (!profile) {
-      profile = await this.firebase.getBusinessById(businessId);
+    const profile = await this.firebase.getBusinessProfile(businessId);
+    const business = await this.firebase.getBusinessById(businessId);
+
+    // Parse onboardingAnswers safely whether object or array
+    let parsedAnswers: Record<string, any> = {};
+    const rawAnswersSource = profile?.onboardingAnswers || business?.onboardingAnswers;
+    if (rawAnswersSource) {
+      try {
+        const raw = typeof rawAnswersSource === 'string' ? JSON.parse(rawAnswersSource) : rawAnswersSource;
+        if (Array.isArray(raw)) {
+          for (let i = 0; i < raw.length; i++) {
+            const item = raw[i];
+            const q = (item?.q || '').toLowerCase();
+            const a = (item?.a || '').trim();
+            if (!a) continue;
+
+            if (q.includes('name of your business') || q.includes('business name')) parsedAnswers.businessName = a;
+            else if (q.includes('category') || q.includes('industry')) parsedAnswers.businessCategory = a;
+            else if (q.includes('products or services') || q.includes('offer')) parsedAnswers.productsServices = a;
+            else if (q.includes('target audience') || q.includes('ideal customer') || q.includes('customer profile')) parsedAnswers.targetAudience = a;
+            else if (q.includes('age group')) parsedAnswers.customerAgeGroup = a;
+            else if (q.includes('primarily target') || q.includes('male / female') || q.includes('gender')) parsedAnswers.genderTarget = a;
+            else if (q.includes('geographic') || q.includes('locations') || q.includes('serve')) parsedAnswers.location = a;
+            else if (q.includes('business goals') || q.includes('goals')) parsedAnswers.businessGoals = a;
+            else if (q.includes('budget')) parsedAnswers.monthlyBudget = a;
+            else if (q.includes('competitors')) parsedAnswers.competitors = a;
+            else if (q.includes('brand tone') || q.includes('tone') || q.includes('voice')) parsedAnswers.brandTone = a;
+            else if (q.includes('often would you like to post') || q.includes('frequency')) parsedAnswers.postingFrequency = a;
+            else if (q.includes('languages')) parsedAnswers.languages = a;
+            else if (q.includes('selling proposition') || q.includes('usp') || q.includes('different from competitors')) parsedAnswers.businessUSP = a;
+          }
+        } else if (typeof raw === 'object' && raw !== null) {
+          parsedAnswers = raw;
+        }
+      } catch {
+        parsedAnswers = {};
+      }
     }
-    if (!profile) {
-      profile = {
-        id: businessId,
-        businessName: 'Apex Cloud Innovations',
-        businessCategory: 'Enterprise SaaS & AI Automation',
-        targetAudience: 'CTOs & Product Leaders',
-        productsServices: 'Autonomous Social Media AI Suite',
-        businessUSP: '10x Faster Deployment',
-        currentOffer: '60% OFF Annual Pro',
-        brandTone: 'Bold, Visionary & High-Energy',
-        contactPhone: '+1 (415) 890-2100',
-        contactEmail: 'contact@apexcloud.ai',
-        websiteUrl: 'www.apexcloud.ai',
-        physicalAddress: '500 Howard St, San Francisco, CA',
-      };
+
+    const businessName = profile?.businessName || business?.name || parsedAnswers.businessName || 'Business Workspace';
+    const businessCategory = profile?.businessCategory || profile?.industry || business?.niche || parsedAnswers.businessCategory || 'General Business';
+    const productsServices = profile?.productsServices || parsedAnswers.productsServices || `${businessName} Products & Services`;
+    const targetAudience = profile?.targetAudience || parsedAnswers.targetAudience || 'Target Audience';
+    const customerAgeGroup = profile?.customerAgeGroup || parsedAnswers.customerAgeGroup || 'All Age Groups';
+    const genderTarget = profile?.genderTarget || parsedAnswers.genderTarget || 'All Genders';
+    const location = profile?.location || parsedAnswers.location || 'Local & Online';
+    const businessGoals = profile?.businessGoals || parsedAnswers.businessGoals || 'Growth & Brand Awareness';
+    const currentOffer = profile?.currentOffer || business?.currentOffer || parsedAnswers.currentOffer || parsedAnswers.businessUSP || 'Special Offer';
+    const monthlyBudget = profile?.monthlyBudget || parsedAnswers.monthlyBudget || '15000';
+    const competitors = profile?.competitors || parsedAnswers.competitors || 'Market Competitors';
+    const brandTone = profile?.brandTone || profile?.brandVoice || business?.vibe || parsedAnswers.brandTone || 'Professional & Modern';
+    const postingFrequency = profile?.postingFrequency || parsedAnswers.postingFrequency || '3 posts per week';
+    const languages = profile?.languages || parsedAnswers.languages || 'English';
+    const businessUSP = profile?.businessUSP || parsedAnswers.businessUSP || 'Premium quality and exceptional service';
+
+    const contactPhone = profile?.contactPhone || profile?.contactNumber || parsedAnswers.contactPhone || parsedAnswers.contactNumber || '';
+    const contactEmail = profile?.contactEmail || profile?.email || parsedAnswers.contactEmail || '';
+    const websiteUrl = profile?.websiteUrl || (profile?.hasWebsite === false ? 'Not Applicable' : profile?.websiteUrl) || parsedAnswers.websiteUrl || '';
+    const physicalAddress = profile?.physicalAddress || profile?.address || parsedAnswers.physicalAddress || location;
+    const logoUrl = profile?.logoUrl || parsedAnswers.logoUrl || null;
+
+    // Smart Color Palette Derivation
+    let brandColors = profile?.brandColors;
+    if (!Array.isArray(brandColors) || brandColors.length < 2) {
+      const catLower = (businessCategory + ' ' + brandTone).toLowerCase();
+      if (catLower.includes('skin') || catLower.includes('organic') || catLower.includes('nature') || catLower.includes('beauty') || catLower.includes('eco')) {
+        brandColors = ['#065F46', '#10B981']; // Emerald & Sage
+      } else if (catLower.includes('code') || catLower.includes('tech') || catLower.includes('saas') || catLower.includes('ai') || catLower.includes('software')) {
+        brandColors = ['#1E3A8A', '#3B82F6']; // Navy & Blue
+      } else if (catLower.includes('food') || catLower.includes('restaurant') || catLower.includes('cafe') || catLower.includes('bakery')) {
+        brandColors = ['#991B1B', '#F97316']; // Crimson & Amber
+      } else if (catLower.includes('fashion') || catLower.includes('luxury') || catLower.includes('apparel') || catLower.includes('jewelry')) {
+        brandColors = ['#18181B', '#D97706']; // Onyx & Gold
+      } else if (catLower.includes('fitness') || catLower.includes('gym') || catLower.includes('sports')) {
+        brandColors = ['#0F172A', '#EF4444']; // Slate & Red
+      } else if (catLower.includes('edu') || catLower.includes('academy') || catLower.includes('course') || catLower.includes('coaching')) {
+        brandColors = ['#1E1B4B', '#6366F1']; // Indigo & Violet
+      } else {
+        brandColors = ['#4F46E5', '#7C3AED']; // Modern Indigo & Purple
+      }
     }
 
     const activeBlueprintRecord = await this.getActiveBlueprint(businessId);
     const bp = activeBlueprintRecord?.blueprint;
 
-    let rawAnswers: Record<string, any> = {};
-    try {
-      rawAnswers = profile.onboardingAnswers ? JSON.parse(profile.onboardingAnswers) : {};
-    } catch {
-      rawAnswers = {};
-    }
-
-    const contactPhone = profile.contactPhone || rawAnswers.contactPhone || rawAnswers.contactDetails?.phone || '';
-    const contactEmail = profile.contactEmail || rawAnswers.contactEmail || rawAnswers.contactDetails?.email || '';
-    const websiteUrl = profile.websiteUrl || rawAnswers.websiteUrl || rawAnswers.contactDetails?.website || '';
-    const physicalAddress = profile.physicalAddress || rawAnswers.physicalAddress || rawAnswers.contactDetails?.address || '';
-
     return {
       businessId,
-      businessName: profile.businessName || '',
-      logoUrl: profile.logoUrl || rawAnswers.logoUrl || null,
-      industry: profile.industry || profile.businessCategory || '',
-      businessCategory: profile.businessCategory || profile.industry || '',
-      productsServices: profile.productsServices || '',
-      targetAudience: profile.targetAudience || '',
-      targetAudienceGeo: profile.targetAudience || profile.location || '',
-      customerAgeGroup: profile.customerAgeGroup || '',
-      genderTarget: profile.genderTarget || '',
-      location: profile.location || '',
-      businessGoals: profile.businessGoals || '',
-      currentOffer: profile.currentOffer || rawAnswers.currentOffer || 'Special Limited Offer',
-      monthlyBudget: profile.monthlyBudget || profile.budgetLimit || '15000',
-      dailyBudget: profile.dailyBudget || 500,
-      budgetLimit: parseFloat(profile.monthlyBudget) || profile.budgetLimit || 15000,
-      competitors: profile.competitors || '',
-      brandTone: profile.brandTone || profile.brandVoice || '',
-      brandVoice: profile.brandTone || profile.brandVoice || '',
-      brandColors: profile.brandColors || ['#4F46E5', '#7C3AED'],
-      brandVisualTheme: profile.brandVisualTheme || 'Modern Minimalist',
-      postingFrequency: profile.postingFrequency || '',
-      languages: profile.languages || 'English',
-      businessUSP: profile.businessUSP || '',
+      businessName,
+      logoUrl,
+      industry: businessCategory,
+      businessCategory,
+      productsServices,
+      targetAudience,
+      targetAudienceGeo: `${targetAudience} in ${location}`,
+      customerAgeGroup,
+      genderTarget,
+      location,
+      businessGoals,
+      currentOffer,
+      monthlyBudget,
+      dailyBudget: Math.round((parseFloat(monthlyBudget) || 15000) / 30),
+      budgetLimit: parseFloat(monthlyBudget) || 15000,
+      competitors,
+      brandTone,
+      brandVoice: brandTone,
+      brandColors,
+      brandVisualTheme: profile?.brandVisualTheme || 'Modern Minimalist',
+      postingFrequency,
+      languages,
+      businessUSP,
 
-      // Contact Details Footer
+      // Contact Details
       contactPhone,
       contactEmail,
       websiteUrl,
@@ -451,17 +504,17 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
       },
 
       // Social Accounts & Ad Credentials
-      metaPageId: profile.metaPageId || profile.selectedPageId || null,
-      metaIgBusinessAccountId: profile.metaIgBusinessAccountId || profile.selectedInstagramAccountId || null,
-      metaAdAccountId: profile.metaAdAccountId || profile.selectedAdAccountId || null,
+      metaPageId: profile?.metaPageId || profile?.selectedPageId || null,
+      metaIgBusinessAccountId: profile?.metaIgBusinessAccountId || profile?.selectedInstagramAccountId || null,
+      metaAdAccountId: profile?.metaAdAccountId || profile?.selectedAdAccountId || null,
 
       // Raw onboarding input
-      onboardingAnswers: rawAnswers,
+      onboardingAnswers: parsedAnswers,
 
       // AI-generated Blueprint sections
-      executiveSummary: bp?.executiveSummary || `${profile.businessName || 'Business'} in ${profile.businessCategory || 'Retail'}`,
-      swotAnalysis: bp?.swot || profile.swotAnalysis || { strengths: [], weaknesses: [], opportunities: [], threats: [] },
-      idealCustomerPersona: bp?.idealCustomerPersona || { summary: profile.targetAudience, ageGroup: profile.customerAgeGroup, gender: profile.genderTarget },
+      executiveSummary: bp?.executiveSummary || `${businessName} in ${businessCategory}`,
+      swotAnalysis: bp?.swot || profile?.swotAnalysis || { strengths: [], weaknesses: [], opportunities: [], threats: [] },
+      idealCustomerPersona: bp?.idealCustomerPersona || { summary: targetAudience, ageGroup: customerAgeGroup, gender: genderTarget },
       customerPainPoints: bp?.customerPainPoints || [],
       buyingTriggers: bp?.buyingTriggers || [],
       marketingStrategy: bp?.marketingStrategy || '',
@@ -472,7 +525,7 @@ Return ONLY valid JSON matching this exact structure (no markdown, no code fence
 
       // Blueprint metadata
       blueprintVersion: activeBlueprintRecord?.version || 'v1',
-      blueprintApproved: profile.blueprintApproved || activeBlueprintRecord?.approved || false,
+      blueprintApproved: profile?.blueprintApproved || business?.blueprintApproved || activeBlueprintRecord?.approved || false,
       blueprintApprovedAt: activeBlueprintRecord?.approvedAt || null,
     };
   }

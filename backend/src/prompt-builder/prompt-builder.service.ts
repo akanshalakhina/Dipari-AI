@@ -159,7 +159,7 @@ Goals: ${ctx.businessGoals}`;
     businessId: string,
     strategy: any,
     weekNumber: number,
-    selectedDays: string[] = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
+    selectedDays: string[] = ['Tuesday', 'Thursday', 'Saturday'],
   ): Promise<{ systemPrompt: string; userPrompt: string }> {
     const ctx = await this.businessIntelligence.getBusinessContext(businessId);
     const weekTheme = strategy?.weeklyThemes?.find((w: any) => w.weekNumber === weekNumber) || {
@@ -181,8 +181,10 @@ Generate exactly 1 post for each of these days: ${selectedDays.join(', ')} for W
 Requirements:
 1. Ensure complete balance across content categories: ${categories.join(', ')}.
 2. Ensure platforms vary across: ${platforms.join(', ')}.
-3. Avoid repetitive headlines, captions, or image prompts.
+3. Avoid repetitive headlines, captions, image prompts, hooks, and calls to action. Each post must have a clearly different angle.
 4. Language: ${ctx.languages}. If Hinglish, write Hindi using Latin script.
+5. Write a complete, catchy, platform-ready caption: a scroll-stopping hook, 2-4 short value-led lines, and one clear CTA. Do not put hashtags inside the caption field.
+6. Return 8-12 unique, relevant hashtags for EVERY post. Every hashtag must start with #, be appropriate for this business and post, and must not be a generic repeated list.
 
 Return ONLY a valid JSON array of post objects:
 [
@@ -264,5 +266,114 @@ Return ONLY valid JSON (no markdown, no code fences).`;
     }
 
     return businessSection;
+  }
+
+  // ─── Image Generation Prompt ──────────────────────────────────────────────
+
+  /**
+   * Builds a structured, highly personalized AI image prompt based on complete Business Context.
+   * Incorporates business products/services, industry, target audience demographics,
+   * brand colors, tone, USP, and post-specific visual concept.
+   */
+  async buildStructuredImagePrompt(
+    businessId: string,
+    postDetails?: {
+      headline?: string;
+      topic?: string;
+      category?: string;
+      postType?: string;
+      objective?: string;
+      offer?: string;
+      cta?: string;
+      graphicPrompt?: string;
+      aspect_ratio?: string;
+      aspectRatio?: string;
+    },
+  ): Promise<{ prompt: string; ctx: any }> {
+    const ctx = await this.businessIntelligence.getBusinessContext(businessId);
+
+    const headline = postDetails?.headline || postDetails?.topic || ctx.productsServices || 'Special Offer';
+    const category = postDetails?.category || 'Promotional';
+    const offer = postDetails?.offer || ctx.currentOffer || ctx.businessUSP;
+    const catLower = category.toLowerCase();
+    const colorsStr = this.formatBrandColorsForPrompt(ctx.brandColors, ctx.brandTone);
+
+    // Build specific visual concept tailored to post and business
+    let visualScene = '';
+    if (postDetails?.graphicPrompt && postDetails.graphicPrompt.length > 15) {
+      visualScene = postDetails.graphicPrompt.replace(/[\r\n]+/g, ' ').trim();
+    } else {
+      if (catLower.includes('educational') || catLower.includes('tips') || catLower.includes('faq')) {
+        visualScene = `Clean informative visual setting showcasing ${ctx.productsServices}, organized arrangement with subtle aesthetic props highlighting key features and expert insights for ${ctx.businessCategory}`;
+      } else if (catLower.includes('testimonial') || catLower.includes('customer') || catLower.includes('story')) {
+        visualScene = `Authentic happy customer matching ${ctx.targetAudience} (Age ${ctx.customerAgeGroup}, ${ctx.genderTarget}) delightfully experiencing ${ctx.productsServices} in ${ctx.location}`;
+      } else if (catLower.includes('behind') || catLower.includes('craft')) {
+        visualScene = `Authentic behind-the-scenes artisanal craft setting showing the quality ingredients, precision process, and creation of ${ctx.productsServices} for ${ctx.businessName}`;
+      } else if (catLower.includes('festival') || catLower.includes('seasonal')) {
+        visualScene = `Festive celebration ambiance with warm atmospheric lighting, festive elements, and ${ctx.productsServices} prominently displayed`;
+      } else {
+        visualScene = `High-impact commercial advertising hero shot of ${ctx.productsServices} highlighting "${offer}" and USP "${ctx.businessUSP}"`;
+      }
+    }
+
+    const productStr = (ctx.productsServices || ctx.businessName).substring(0, 180);
+    const audienceStr = (ctx.targetAudience || 'customers').substring(0, 60);
+    const locStr = (ctx.location || 'modern setting').substring(0, 30);
+    const sceneStr = visualScene.substring(0, 280);
+    const subjectGuidance = this.getImageSubjectGuidance(ctx.businessCategory, ctx.productsServices);
+
+    // High quality continuous natural language prompt for image generation engines
+    const prompt = `Create a highly specific commercial advertising image for ${ctx.businessName}. Business category: ${ctx.businessCategory}. Exact products or services being advertised: ${productStr}. The image must make that offering the unmistakable main subject; do not replace it with a generic business, showroom, model, office, or lifestyle scene. Visual concept: ${sceneStr}. ${subjectGuidance} Target audience: ${audienceStr}. Location context: ${locStr}. Brand style: ${ctx.brandVoice}. Brand colors: ${colorsStr}. Photorealistic professional advertising photography, clear composition, realistic proportions, useful product detail, no readable text, no watermark, no unrelated objects.`;
+
+    this.logger.log(`[PromptBuilderService] Built personalized image prompt for ${ctx.businessName} (${category}): "${prompt.substring(0, 90)}..."`);
+    return { prompt, ctx };
+  }
+
+  private getImageSubjectGuidance(category: string, productsServices: string): string {
+    const businessText = `${category} ${productsServices}`.toLowerCase();
+
+    if (/saas|software|app|platform|ai|automation|digital|technology|tech/.test(businessText)) {
+      return 'This is a digital product or service: show the actual software experience, dashboard, workflow, device screen, or people using the described tool. Do not show clothing, fashion models, retail racks, food, drinks, or unrelated physical products.';
+    }
+    if (/real estate|property|properties|construction|builder|architect/.test(businessText)) {
+      return 'Show the exact property or real-estate service: an attractive but realistic property, floor plan, site, or buyer consultation. Do not show clothing, fashion models, retail racks, food, or unrelated products.';
+    }
+    if (/restaurant|food|cafe|bakery|drink|beverage|bar/.test(businessText)) {
+      return 'Show the exact food, dish, drink, or dining experience described by the onboarding answers. Do not show clothing, fashion models, retail racks, software dashboards, or unrelated products.';
+    }
+    if (/fashion|apparel|clothing|garment|boutique|dress|shirt|jewelry|accessor/.test(businessText)) {
+      return 'Show the exact clothing, apparel, accessory, or fashion product described by the onboarding answers. Use a model only when it helps display that exact product; do not turn the image into an empty showroom or generic fashion studio.';
+    }
+    return 'Show the exact product or service described by the onboarding answers in use or being delivered. Do not invent a different industry or substitute generic stock imagery.';
+  }
+
+  private formatBrandColorsForPrompt(colors: any, tone: string): string {
+    if (!colors) return 'harmonious brand tones';
+    const colorMap: Record<string, string> = {
+      '#065F46': 'emerald green',
+      '#064E3B': 'forest green',
+      '#10B981': 'sage green',
+      '#D97706': 'warm gold',
+      '#F59E0B': 'golden amber',
+      '#1E3A8A': 'navy blue',
+      '#3B82F6': 'electric blue',
+      '#06B6D4': 'cyan blue',
+      '#991B1B': 'crimson red',
+      '#F97316': 'warm orange',
+      '#18181B': 'sleek dark onyx',
+      '#4F46E5': 'indigo violet',
+      '#7C3AED': 'rich purple',
+      '#EF4444': 'energetic red',
+      '#6366F1': 'deep violet',
+    };
+
+    if (Array.isArray(colors)) {
+      const names = colors.map((c) => colorMap[c.toUpperCase()] || c.replace('#', '')).filter(Boolean);
+      return names.length > 0 ? names.join(' and ') : 'harmonious brand tones';
+    }
+    if (typeof colors === 'string') {
+      return colorMap[colors.toUpperCase()] || colors.replace('#', '');
+    }
+    return 'harmonious brand tones';
   }
 }

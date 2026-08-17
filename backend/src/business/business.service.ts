@@ -104,7 +104,7 @@ export class BusinessService {
       case 'monthlyBudget': {
         const numericVal = parseFloat(val.replace(/[^0-9.]/g, ''));
         if (isNaN(numericVal) || numericVal <= 0) {
-          return { valid: false, reason: 'Please specify a valid numeric monthly budget (e.g., 25000 or $5,000).' };
+          return { valid: false, reason: 'Please specify a valid numeric monthly budget (e.g., 25000 or ₹25,000).' };
         }
         break;
       }
@@ -595,14 +595,7 @@ export class BusinessService {
 
   /** Save profile + generate Business Blueprint after all 14 fields are collected */
   private async completeOnboarding(businessId: string, data: Record<string, any>) {
-    let blueprintRecord: any = null;
-    try {
-      blueprintRecord = await this.businessIntelligence.generateBusinessBlueprint(businessId);
-    } catch (e: any) {
-      this.logger.warn(`AI Business Blueprint generation fallback used due to: ${e.message}`);
-    }
-
-    // Save full business profile to Firestore
+    // 1. Save full business profile to Firestore FIRST so context is immediately available
     await this.firebase.upsertBusinessProfile(businessId, {
       businessName: data.businessName,
       businessCategory: data.businessCategory,
@@ -626,7 +619,7 @@ export class BusinessService {
       blueprintApproved: false,
     });
 
-    // Update business document in Workspaces collection
+    // 2. Update business document in Workspaces collection
     await this.firebase.updateBusiness(businessId, {
       name: data.businessName || undefined,
       niche: data.businessCategory || data.industry || 'General Business',
@@ -636,6 +629,14 @@ export class BusinessService {
       blueprintApproved: false,
       updatedAt: new Date(),
     });
+
+    // 3. Generate Business Blueprint to populate AI strategy
+    let blueprintRecord: any = null;
+    try {
+      blueprintRecord = await this.businessIntelligence.generateBusinessBlueprint(businessId);
+    } catch (e: any) {
+      this.logger.warn(`AI Business Blueprint generation fallback used due to: ${e.message}`);
+    }
 
     // Welcome notification
     await this.firebase.createNotification({
@@ -648,7 +649,7 @@ export class BusinessService {
     this.logger.log(`Onboarding completed & blueprint generated for business ${businessId}: ${data.businessName}`);
   }
 
-  /** Backward compatible: save answers from the old form-based onboarding */
+  /** Complete onboarding: maps all 14 onboarding answers accurately into business profile */
   async saveAnswersAndGenerateStrategy(
     businessId: string,
     answers: { q: string; a: string }[],
@@ -656,43 +657,44 @@ export class BusinessService {
     const business = await this.firebase.getBusinessById(businessId);
     if (!business) throw new NotFoundException('Business workspace not found');
 
-    const industryAns = answers.find((x) => x.q.toLowerCase().includes('industry'))?.a || 'General Retail';
-    const audienceAns = answers.find((x) => x.q.toLowerCase().includes('customer profile'))?.a || 'General Audience';
-    const voiceAns = answers.find((x) => x.q.toLowerCase().includes('tone'))?.a || 'Friendly';
-    const budgetAns = parseFloat(answers.find((x) => x.q.toLowerCase().includes('budget'))?.a || '2000') || 2000;
+    // Extract all 14 fields from answers array
+    const data: Record<string, any> = {};
 
-    let preferredLanguage = 'English';
-    if (business.ownerId) {
-      const user = await this.firebase.getUserById(business.ownerId);
-      if (user && user.preferredLanguage) {
-        preferredLanguage = user.preferredLanguage;
+    for (let i = 0; i < this.onboardingFields.length; i++) {
+      const field = this.onboardingFields[i];
+      const found = answers.find(
+        (a) =>
+          a.q === field.question ||
+          a.q?.toLowerCase().includes(field.key.toLowerCase()) ||
+          (field.key === 'businessName' && (a.q?.toLowerCase().includes('name of your business') || a.q?.toLowerCase().includes('business name'))) ||
+          (field.key === 'businessCategory' && (a.q?.toLowerCase().includes('category') || a.q?.toLowerCase().includes('industry'))) ||
+          (field.key === 'productsServices' && (a.q?.toLowerCase().includes('products or services') || a.q?.toLowerCase().includes('offer'))) ||
+          (field.key === 'targetAudience' && (a.q?.toLowerCase().includes('target audience') || a.q?.toLowerCase().includes('ideal customer') || a.q?.toLowerCase().includes('customer profile'))) ||
+          (field.key === 'customerAgeGroup' && a.q?.toLowerCase().includes('age group')) ||
+          (field.key === 'genderTarget' && (a.q?.toLowerCase().includes('primarily target') || a.q?.toLowerCase().includes('male / female') || a.q?.toLowerCase().includes('gender'))) ||
+          (field.key === 'location' && (a.q?.toLowerCase().includes('geographic') || a.q?.toLowerCase().includes('locations') || a.q?.toLowerCase().includes('serve'))) ||
+          (field.key === 'businessGoals' && (a.q?.toLowerCase().includes('business goals') || a.q?.toLowerCase().includes('goals'))) ||
+          (field.key === 'monthlyBudget' && a.q?.toLowerCase().includes('budget')) ||
+          (field.key === 'competitors' && a.q?.toLowerCase().includes('competitors')) ||
+          (field.key === 'brandTone' && (a.q?.toLowerCase().includes('brand tone') || a.q?.toLowerCase().includes('tone') || a.q?.toLowerCase().includes('voice'))) ||
+          (field.key === 'postingFrequency' && (a.q?.toLowerCase().includes('often would you like to post') || a.q?.toLowerCase().includes('frequency'))) ||
+          (field.key === 'languages' && a.q?.toLowerCase().includes('languages')) ||
+          (field.key === 'businessUSP' && (a.q?.toLowerCase().includes('selling proposition') || a.q?.toLowerCase().includes('usp') || a.q?.toLowerCase().includes('different from competitors')))
+      );
+
+      if (found?.a) {
+        data[field.key] = found.a.trim();
+      } else if (answers[i]?.a) {
+        data[field.key] = answers[i].a.trim();
       }
     }
 
-    const strategy = await this.integrations.generateBusinessStrategy(
-      industryAns,
-      audienceAns,
-      voiceAns,
-      { preferredLanguage },
-    );
+    this.logger.log(`[BusinessService] Saving complete 14-field onboarding data for ${businessId}: ${data.businessName || business.name} (${data.businessCategory})`);
 
-    const profile = await this.firebase.upsertBusinessProfile(businessId, {
-      industry: industryAns,
-      targetAudience: audienceAns,
-      brandVoice: voiceAns,
-      budgetLimit: budgetAns,
-      onboardingAnswers: JSON.stringify(answers),
-      swotAnalysis: strategy.swot,
-      competitorAnalysis: strategy.competitors,
-    });
+    // Complete onboarding, persist to profile & trigger AI Business Blueprint generation
+    await this.completeOnboarding(businessId, data);
 
-    await this.firebase.createNotification({
-      businessId,
-      title: 'Business Strategy Generated',
-      message: `Onboarding completed! SWOT and competitor profiles are now active for ${business.name}.`,
-      type: 'GENERAL',
-    });
-
+    const profile = await this.firebase.getBusinessProfile(businessId);
     return profile;
   }
 
@@ -774,7 +776,7 @@ export class BusinessService {
 
       const invoiceId = p.invoiceId || (p.paymentRequestId ? `INV-${p.paymentRequestId.slice(-8).toUpperCase()}` : `INV-2026-${String(idx + 1).padStart(4, '0')}`);
       const paymentDate = p.paymentDate || p.paidAt || p.createdAt || new Date().toISOString();
-      const paymentMethod = p.paymentMethod || 'Instamojo UPI';
+      const paymentMethod = p.provider || p.paymentMethod || 'PhonePe';
       const currency = p.currency || 'INR';
 
       return {
@@ -796,17 +798,21 @@ export class BusinessService {
   }
 
   async updateProfile(businessId: string, profileData: any) {
-    const updated = await this.firebase.upsertBusinessProfile(businessId, profileData);
-    if (profileData.businessName) {
-      await this.firebase.col('businesses').doc(businessId).update({ name: profileData.businessName });
-    }
+    const updated = await this.firebase.upsertBusinessProfile(businessId, {
+      ...profileData,
+      profileCompleted: true,
+    });
+    await this.firebase.col('businesses').doc(businessId).update({
+      profileCompleted: true,
+      ...(profileData.businessName ? { name: profileData.businessName } : {}),
+    });
     return { success: true, profile: updated };
   }
 
   async upgradePlan(businessId: string, planName: string) {
     const normalizedPlan = (planName || '').toUpperCase();
     
-    // For paid plans, create Instamojo payment request link
+    // For paid plans, create Cashfree payment request link
     if (normalizedPlan !== 'FREE') {
       return this.paymentService.createPaymentRequest({
         businessId,

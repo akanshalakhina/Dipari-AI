@@ -2,17 +2,23 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import * as dotenv from 'dotenv';
+import { join } from 'path';
+import * as express from 'express';
 
 dotenv.config();
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.use('/uploads', express.static(join(process.cwd(), 'public', 'uploads')));
 
   // Enable validation globally for payloads
   app.useGlobalPipes(new ValidationPipe({ transform: true }));
 
   // Set API prefix
   app.setGlobalPrefix('api');
+  app.getHttpAdapter().get('/api/health', (_req: any, res: any) => {
+    res.status(200).json({ status: 'ok' });
+  });
 
   // Enable CORS for frontend API communications
   const allowedOrigins = [

@@ -73,3 +73,7 @@ firebase-service-account.json
 
 # Mock database
 backend/mock-db.json
+
+# Uploads and temporary assets
+backend/public/uploads/*
+!backend/public/uploads/.gitkeep

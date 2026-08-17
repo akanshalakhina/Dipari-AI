@@ -2,8 +2,9 @@ import { Controller, Get, Post, Body, Param, Put, Query, UseGuards, Res } from '
 import { CampaignsService } from './campaigns.service';
 import { ReportGeneratorService } from './report-generator.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
+import { ProfileCompletedGuard } from '../auth/profile-completed.guard';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ProfileCompletedGuard)
 @Controller('campaigns')
 export class CampaignsController {
   constructor(

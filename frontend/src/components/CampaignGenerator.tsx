@@ -151,7 +151,7 @@ export default function CampaignGenerator({ businessId, addToast, onDraftGenerat
               </div>
 
               <div>
-                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>Daily Budget (USD)</label>
+                <label style={{ display: 'block', marginBottom: 8, fontSize: '0.85rem', fontWeight: 600 }}>Daily Budget (₹)</label>
                 <input 
                   className="form-input" 
                   type="number" 

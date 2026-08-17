@@ -1,0 +1,9 @@
+services:
+  - type: web
+    name: campaignai-api
+    runtime: docker
+    rootDir: backend
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production

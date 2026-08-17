@@ -8,6 +8,7 @@ import { publishOrganicSimultaneously } from '../lib/meta/organic-publisher';
 import { generateScheduleSlots, calculateNext10AM, ScheduleRule, isValidScheduleRule } from '../lib/scheduler/time-engine';
 import { PublishLogEntry } from '../firebase/firestore.schema';
 import { RabbitMqService } from './rabbitmq.service';
+import { getPlanLimits } from '../payment/payment.constants';
 
 /**
  * SchedulerService — Phase 3 & 4: AI Auto Scheduler + Meta Auto Posting.
@@ -227,12 +228,12 @@ export class SchedulerService implements OnModuleInit {
     };
   }
 
-  // ─── Cron Job 1: Auto Publishing (Runs Every Minute) ──────────────────────────
+  // ─── Cron Job 1: Auto Publishing (Runs Every 10 Minutes) ──────────────────────
 
   /**
-   * Runs every minute — finds due SCHEDULED posts and executes them automatically.
+   * Runs every 10 minutes — finds due SCHEDULED posts and executes them automatically.
    */
-  @Cron(CronExpression.EVERY_MINUTE)
+  @Cron(CronExpression.EVERY_10_MINUTES)
   async handleCronPublishing() {
     await this.triggerAutomatedPosting();
   }
@@ -563,12 +564,12 @@ export class SchedulerService implements OnModuleInit {
     if (!business && !profile) throw new NotFoundException('Business profile not found');
 
     const businessName = profile?.businessName || business?.name || 'Your business';
-    const category = profile?.businessCategory || profile?.industry || business?.niche || 'Ecommerce & Retail';
-    const productsServices = profile?.productsServices || profile?.products || 'clothes, apparel, and fashion accessories';
-    const targetAudience = profile?.targetAudience || 'fashion enthusiasts';
+    const category = profile?.businessCategory || profile?.industry || business?.niche || 'your industry';
+    const productsServices = profile?.productsServices || profile?.products || 'your products or services';
+    const targetAudience = profile?.targetAudience || 'your ideal customers';
     const goal = profile?.businessGoals || 'increase sales & brand awareness';
     const usp = profile?.businessUSP || 'premium quality and 24/7 support';
-    const brandTone = profile?.brandTone || profile?.brandVoice || 'vibrant and stylish';
+    const brandTone = profile?.brandTone || profile?.brandVoice || 'clear, friendly, and engaging';
     const location = profile?.location || '';
 
     let targetHours = 10;
@@ -595,28 +596,44 @@ export class SchedulerService implements OnModuleInit {
       }
     }
 
+    const planName = (business as any)?.subscriptionPlan || (business as any)?.plan || (profile as any)?.subscriptionPlan || 'FREE';
+    const limits = getPlanLimits(planName);
+
     const daysMode = data.daysMode || (Number(data.count) === 7 ? 'everyday' : 'workdays');
-    const targetCount = Math.min(Math.max(Number(data.count) || (daysMode === 'everyday' ? 7 : 5), 1), 30);
+    const requestedCount = Number(data.count) || (daysMode === 'everyday' ? 7 : 5);
+    const targetCount = Math.min(Math.max(requestedCount, 1), limits.postsPerWeek || 3);
 
     const existingPosts = await this.firebase.getScheduledPostsByBusinessId(data.businessId);
     const existingHeadlines = new Set((existingPosts || []).map((p: any) => (p.headline || '').trim().toLowerCase()));
 
     const postBlueprints = [
-      { tag: 'Customer Story', headline: `Why customers choose ${businessName}`, imageTheme: `happy customer wearing ${productsServices}` },
-      { tag: 'Style Tip', headline: `Styling tip for ${productsServices}`, imageTheme: `fashion aesthetic outfit display ${productsServices}` },
-      { tag: 'Behind The Scenes', headline: `Crafting quality ${productsServices} at ${businessName}`, imageTheme: `tailoring design studio fabric ${productsServices}` },
-      { tag: 'Value Proposition', headline: `What makes ${businessName} ${productsServices} unique`, imageTheme: `premium luxury fashion showcase ${productsServices}` },
-      { tag: 'Call to Action', headline: `Upgrade your collection with ${businessName}`, imageTheme: `modern fashion boutique store ${productsServices}` },
-      { tag: 'FAQ', headline: `Top questions about ${businessName} ${productsServices}`, imageTheme: `fashion shopping catalog clean ${productsServices}` },
-      { tag: 'Weekly Highlight', headline: `This week's trending ${productsServices}`, imageTheme: `vibrant fashion model photoshoot ${productsServices}` },
-      { tag: 'Product Spotlight', headline: `Spotlight: ${productsServices} by ${businessName}`, imageTheme: `minimalist product photography ${productsServices}` },
-      { tag: 'Tutorial', headline: `How to style ${productsServices} effortlessly`, imageTheme: `fashion mannequin style guide ${productsServices}` },
-      { tag: 'Special Offer', headline: `Exclusive ${businessName} offer on ${productsServices}`, imageTheme: `luxury shopping bag boutique discount` },
+      { tag: 'Customer Story', headline: `Why customers choose ${businessName}`, imageTheme: `happy ${targetAudience} using or enjoying ${productsServices}, authentic customer lifestyle photography` },
+      { tag: 'How It Works', headline: `How ${businessName} makes ${productsServices} easier`, imageTheme: `clear visual demonstration of ${productsServices}, human-centered commercial photography` },
+      { tag: 'Behind The Scenes', headline: `Behind the scenes at ${businessName}`, imageTheme: `people creating, preparing, or delivering ${productsServices}, authentic behind-the-scenes photography` },
+      { tag: 'Value Proposition', headline: `What makes ${businessName} different`, imageTheme: `hero product or service visual for ${productsServices}, premium branded commercial photography` },
+      { tag: 'Tip', headline: `A useful tip for ${targetAudience}`, imageTheme: `helpful visual tip featuring ${productsServices}, clean editorial social media design` },
+      { tag: 'FAQ', headline: `Your questions about ${productsServices}, answered`, imageTheme: `professional product or service consultation featuring ${productsServices}, friendly natural lighting` },
+      { tag: 'Product Spotlight', headline: `Spotlight on ${productsServices}`, imageTheme: `detailed hero shot of ${productsServices}, professional product photography, brand-ready composition` },
+      { tag: 'Call to Action', headline: `Ready to try ${productsServices}?`, imageTheme: `inviting ${productsServices} hero scene with clear space for text, eye-catching campaign photography` },
+      { tag: 'Social Proof', headline: `Real results with ${businessName}`, imageTheme: `satisfied customer and positive outcome related to ${productsServices}, trustworthy brand photography` },
+      { tag: 'Special Offer', headline: `A special moment for ${businessName} customers`, imageTheme: `attractive ${productsServices} promotional scene, celebratory commercial campaign photography` },
     ];
 
-    const buildImageUrl = (theme: string, postIndex: number): string => {
-      const promptText = `professional high resolution product photograph of ${productsServices} for brand ${businessName}, ${theme}, commercial fashion photography, studio lighting, 4k`;
-      return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=1080&height=1080&nologo=true`;
+    const buildImageUrl = async (theme: string, postIndex: number): Promise<string> => {
+      const businessText = `${category} ${productsServices}`.toLowerCase();
+      const subjectRules = /saas|software|app|platform|ai|automation|digital|technology|tech/.test(businessText)
+        ? 'This is a digital offering: show the described software, dashboard, workflow, device screen, or people using it; never show fashion, clothing racks, food, drinks, or unrelated physical products.'
+        : /real estate|property|properties|construction|builder|architect/.test(businessText)
+          ? 'Show the exact property, building, floor plan, site, or real-estate consultation; never show fashion, clothing racks, food, drinks, or unrelated products.'
+          : /restaurant|food|cafe|bakery|drink|beverage|bar/.test(businessText)
+            ? 'Show the exact food, dish, drink, or dining service described; never show fashion, clothing racks, software dashboards, or unrelated products.'
+            : /fashion|apparel|clothing|garment|boutique|dress|shirt|jewelry|accessor/.test(businessText)
+              ? 'Show the exact apparel or accessory described by the business; use a model only to display that product and avoid empty generic showrooms.'
+              : 'Show only the exact product or service described by the business; do not substitute generic stock imagery or another industry.';
+      const promptText = `Create a square social media advertising image for ${businessName}. Category: ${category}. Exact offering: ${productsServices}. Main visual concept: ${theme}. ${subjectRules} Brand tone: ${brandTone}. Photorealistic, polished commercial advertising photography, clear subject, no readable text, no watermark, no unrelated props.`;
+      const result = await this.aiService.generateImage(promptText, { aspect_ratio: '1:1' });
+      if (result?.imageUrl) return result.imageUrl;
+      return `https://image.pollinations.ai/prompt/${encodeURIComponent(promptText)}?width=1080&height=1080&nologo=true&seed=${Date.now()}_${postIndex}`;
     };
 
     const posts: any[] = [];
@@ -646,10 +663,15 @@ export class SchedulerService implements OnModuleInit {
       let hashtags: string[] = [];
 
       try {
-        const systemPrompt = `You are an expert social media copywriter for ${businessName}. Write complete, engaging social media post captions tailored specifically to ${businessName}. Do NOT use markdown asterisks (**) or header hashes (#). Do NOT truncate or cut off captions mid-sentence. Always end with a complete sentence and a punchy call to action.`;
-        const userPrompt = `Write a unique, complete, high-converting social media caption for a "${blueprint.tag}" post.
+        const systemPrompt = `You are a world-class viral social media copywriter for ${businessName}. Write complete, high-converting social media post captions.
+STRICT MANDATE:
+1. Every caption MUST start with a scroll-stopping VIRAL HOOK line with emojis (e.g., "🔥 Stop scrolling! Upgrade your wardrobe...", "✨ The secret to effortless everyday style just dropped...").
+2. Do NOT use markdown asterisks (**) or header hashes (#). Do NOT cut off mid-sentence.
+3. End with a strong Call to Action (e.g., "👉 Tap link in bio to shop now! ✨").`;
+
+        const userPrompt = `Write an irresistible, high-converting social media caption for a "${blueprint.tag}" post.
 Business Name: ${businessName}
-Industry: ${category}
+Industry / Category: ${category}
 Products / Services: ${productsServices}
 Target Audience: ${targetAudience}
 Brand Tone: ${brandTone}
@@ -659,13 +681,13 @@ ${location ? `Location: ${location}` : ''}
 Post Title: "${headline}"
 
 Instructions:
-- Write a COMPLETE 3-5 sentence caption (200-350 characters) featuring ${productsServices} for ${targetAudience}.
+- Write a COMPLETE 3-5 sentence caption (200-350 characters) starting with a scroll-stopping viral hook line (with emojis).
 - Highlight ${businessName}'s USP (${usp}) in a ${brandTone} tone.
-- Ensure the caption ends cleanly with a clear call-to-action (e.g., "Shop now at link in bio! ✨").
-- Do NOT cut off mid-sentence!
+- Make the caption specific to this post and ${productsServices}; never reuse wording from another post.
+- End with a strong call-to-action ("👉 Tap link in bio to shop the collection! ✨").
 
 Format strictly as:
-CAPTION: <your full complete caption here>
+CAPTION: <your full complete caption with viral hook>
 HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
 
         const aiResponse = await this.aiService.chat(systemPrompt, userPrompt, 0.85, 1200, 'SchedulerService.scheduleInstantWeek');
@@ -687,7 +709,17 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
       }
 
       if (!caption) {
-        caption = `Discover what makes ${productsServices} from ${businessName} exceptional. Designed for ${targetAudience}, we bring you ${usp}. Explore our collection today and elevate your experience! 🚀`;
+        caption = `🔥 Upgrade your style game with ${businessName}! Discover premium quality ${productsServices} designed specifically for ${targetAudience}. Crafted with ${usp} for effortless comfort and elegance. 👉 Tap the link in bio to shop our latest collection today! ✨`;
+      }
+      // Keep the non-AI path business-specific and vary it by post instead of repeating one caption.
+      if (!caption || /Upgrade your style game|shop our latest collection/i.test(caption)) {
+        const fallbackCaptions = [
+          `✨ Meet the ${productsServices} your ${targetAudience} have been looking for. ${businessName} brings ${usp} to every experience. Discover your next favourite today!`,
+          `💡 Looking for a smarter way to choose ${productsServices}? ${businessName} makes it simple with ${usp}. See what makes us different and get started today.`,
+          `👀 A closer look at ${businessName}: thoughtful ${productsServices}, made for ${targetAudience}. Experience ${usp} for yourself—explore now!`,
+          `🚀 Ready for better ${productsServices}? Join customers who choose ${businessName} for ${usp}. Take the next step today!`,
+        ];
+        caption = fallbackCaptions[posts.length % fallbackCaptions.length];
       }
       if (!hashtags.length) {
         const catTag = `#${String(category).replace(/[^a-z0-9]/gi, '')}`;
@@ -696,7 +728,7 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
         hashtags = [catTag, bizTag, prodTag, '#DIPARIAI', '#SmallBusiness', '#SocialMedia', '#Style', '#Quality'];
       }
 
-      const imageUrl = buildImageUrl(blueprint.imageTheme, posts.length);
+      const imageUrl = await buildImageUrl(blueprint.imageTheme, posts.length);
 
       const scheduledTime = new Date(cursor);
       scheduledTime.setHours(targetHours, targetMinutes, 0, 0);
@@ -704,6 +736,7 @@ HASHTAGS: #tag1 #tag2 #tag3 #tag4 #tag5 #tag6 #tag7 #tag8`;
       const newPost = await this.firebase.createScheduledPost({
         businessId: data.businessId,
         headline,
+        contentDescription: `${blueprint.tag}: ${blueprint.imageTheme}. Tailored for ${targetAudience} and focused on ${productsServices}.`,
         caption,
         hashtags,
         imageUrl,

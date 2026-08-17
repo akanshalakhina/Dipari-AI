@@ -9,6 +9,7 @@ import { FirebaseService } from '../firebase/firebase.service';
 import { AiService } from '../ai/ai.service';
 import { BusinessIntelligenceService } from '../business/business-intelligence.service';
 import { PromptBuilderService } from '../prompt-builder/prompt-builder.service';
+import { IntegrationsService } from '../integrations/integrations.service';
 
 export interface ContentStrategyData {
   monthlyMarketingStrategy: string;
@@ -46,7 +47,97 @@ export class ContentService {
     private readonly businessIntelligence: BusinessIntelligenceService,
     private readonly promptBuilder: PromptBuilderService,
     private readonly graphicGenerator: GraphicGeneratorService,
+    private readonly integrations: IntegrationsService,
   ) {}
+
+  /**
+   * Generates a 1080x1080 pixel branded social graphic customized to the business vibe,
+  /**
+   * Helper: Builds structured prompt, generates AI visual background scene,
+   * composites with GraphicGeneratorService (real logo, copy, CTA, contact bar, brand colors),
+   * uploads PNG buffer to Firebase Storage, and returns permanent public URL.
+   */
+  private async generateAndCompositeImage(
+    businessId: string,
+    postDetails: {
+      headline?: string;
+      topic?: string;
+      category?: string;
+      postType?: string;
+      objective?: string;
+      offer?: string;
+      cta?: string;
+      caption?: string;
+      graphicPrompt?: string;
+      aspectRatio?: '1:1' | '4:5' | '9:16';
+    } = {},
+  ): Promise<string> {
+    const startedAt = Date.now();
+    this.logger.log(`[ContentService] Initiating Image Generation & Compositing for business: ${businessId}`);
+
+    try {
+      // 1. Build structured image prompt from BusinessIntelligenceService single source of truth
+      const promptData = await this.promptBuilder.buildStructuredImagePrompt(businessId, postDetails);
+      const ctx = promptData.ctx;
+
+      // 2. Determine aspect ratio from post type if not explicit
+      let aspectRatio: '1:1' | '4:5' | '9:16' = postDetails.aspectRatio || '1:1';
+      const pType = (postDetails.postType || '').toLowerCase();
+      if (pType.includes('story') || pType.includes('reel')) {
+        aspectRatio = '9:16';
+      }
+
+      // 3. Call AI image provider for high-res visual scene background
+      let bgImageUrl = '';
+      try {
+        const imageResult = await this.aiService.generateImage(promptData.prompt, { aspect_ratio: aspectRatio });
+        if (imageResult?.imageUrl) {
+          bgImageUrl = imageResult.imageUrl;
+        }
+      } catch (imgErr: any) {
+        this.logger.warn(`[ContentService] AI Image generation warning for ${businessId}: ${imgErr.message}`);
+      }
+
+      // 4. Composite AI visual + Real Logo + Typography + CTA + Contact details using Canvas
+      const headlineText = postDetails.headline || postDetails.topic || ctx.productsServices || 'Special Offer';
+      const offerText = postDetails.offer || ctx.currentOffer || ctx.businessUSP || 'Special Offer';
+      const ctaType = postDetails.cta || 'Shop Now';
+      const categoryName = postDetails.category || postDetails.postType || ctx.businessCategory || 'Promotional';
+
+      const pngBuffer = await this.graphicGenerator.generateBrandedGraphicBuffer({
+        businessName: ctx.businessName,
+        offerText,
+        headline: headlineText,
+        description: postDetails.caption?.substring(0, 100) || ctx.businessUSP,
+        ctaType,
+        niche: categoryName,
+        vibe: ctx.brandTone,
+        logoUrl: ctx.logoUrl,
+        brandColors: ctx.brandColors,
+        bgImageUrl,
+        phone: ctx.contactPhone,
+        email: ctx.contactEmail,
+        website: ctx.websiteUrl,
+        address: ctx.physicalAddress,
+        aspectRatio,
+      });
+
+      // 5. Upload composited PNG buffer to Firebase Storage
+      const timestamp = Date.now();
+      const destinationPath = `creatives/${businessId}/${timestamp}_creative.png`;
+      const uploadResult = await this.firebase.uploadFileBuffer(pngBuffer, destinationPath, 'image/png');
+
+      const finalUrl = uploadResult?.publicUrl || bgImageUrl || `data:image/png;base64,${pngBuffer.toString('base64')}`;
+      const durationMs = Date.now() - startedAt;
+
+      this.logger.log(`[ContentService] Successfully generated & composited creative for ${ctx.businessName} in ${durationMs}ms: ${finalUrl}`);
+      return finalUrl;
+    } catch (err: any) {
+      this.logger.error(`[ContentService] Image generation & compositing error for ${businessId}: ${err.message}`);
+      // Fallback: return a curated structured graphic URL
+      return `https://image.pollinations.ai/prompt/${encodeURIComponent(`Commercial ad creative background for business ${businessId}`)}?width=1080&height=1080&nologo=true`;
+    }
+  }
 
   /**
    * Generates a 1080x1080 pixel branded social graphic customized to the business vibe,
@@ -61,43 +152,22 @@ export class ContentService {
       throw new BadRequestException('businessId is required');
     }
 
-    // 1. Fetch business workspace and profile parameters from Firestore
-    const workspace = (await this.firebase.workspacesDao?.findById(businessId)) || (await this.firebase.getBusinessById(businessId));
-    if (!workspace) {
-      throw new NotFoundException(`Workspace for business ${businessId} not found in Firestore`);
-    }
+    const context = await this.businessIntelligence.getBusinessContext(businessId);
+    const offerText = offerTextOverride || context.currentOffer || context.businessUSP;
 
-    const profile = await this.firebase.getBusinessProfile(businessId);
-
-    const businessName = workspace.name || profile?.businessName || 'Our Business';
-    const vibe = workspace.vibe || profile?.brandTone || profile?.brandVoice || 'Professional & Trustworthy';
-    const niche = workspace.niche || profile?.businessCategory || profile?.industry || 'Exclusive Promotion';
-    const offerText = offerTextOverride || workspace.currentOffer || profile?.currentOffer || profile?.businessUSP || 'SPECIAL 30% OFF PROMOTION!';
-
-    this.logger.log(`Generating 1080x1080 graphic for ${businessName} | Vibe: ${vibe} | Offer: "${offerText.substring(0, 40)}..."`);
-
-    // 2. Generate 1080x1080 PNG Buffer via GraphicGeneratorService (@napi-rs/canvas)
-    const pngBuffer = await this.graphicGenerator.generateBrandedGraphicBuffer({
-      businessName,
-      offerText,
-      vibe,
-      niche,
+    const publicUrl = await this.generateAndCompositeImage(businessId, {
+      offer: offerText,
+      category: 'Promotional',
+      headline: `${context.businessName} Special Offer`,
     });
-
-    // 3. Upload PNG Buffer to Firebase Storage
-    const timestamp = Date.now();
-    const destinationPath = `graphics/${businessId}/${timestamp}_branded_graphic.png`;
-
-    const uploadResult = await this.firebase.uploadFileBuffer(pngBuffer, destinationPath, 'image/png');
 
     return {
       success: true,
-      publicUrl: uploadResult.publicUrl,
-      storagePath: uploadResult.storagePath,
+      publicUrl,
       businessId,
-      businessName,
-      vibe,
-      niche,
+      businessName: context.businessName,
+      vibe: context.brandTone,
+      niche: context.businessCategory,
       offerText,
       dimensions: '1080x1080',
     };
@@ -105,7 +175,7 @@ export class ContentService {
 
   /**
    * Generates Instagram-ready content (caption + 15 hashtags) by pulling
-   * business context (niche, vibe, currentOffer) directly from Firestore.
+   * business context directly from BusinessIntelligenceService single source of truth.
    */
   async generateInstagramPost(
     businessId: string,
@@ -116,44 +186,33 @@ export class ContentService {
       throw new BadRequestException('businessId is required');
     }
 
-    // 1. Fetch business workspace and profile from Firestore
-    const workspace = (await this.firebase.workspacesDao?.findById(businessId)) || (await this.firebase.getBusinessById(businessId));
-    if (!workspace) {
-      throw new NotFoundException(`Workspace for business ${businessId} not found in Firestore`);
-    }
+    const context = await this.businessIntelligence.getBusinessContext(businessId);
 
-    const profile = await this.firebase.getBusinessProfile(businessId);
+    this.logger.log(`Generating Instagram post with Business Intelligence context for ${context.businessName} (${context.businessCategory})`);
 
-    const businessContext = {
-      businessName: workspace.name || profile?.businessName || 'Our Business',
-      niche: workspace.niche || profile?.businessCategory || profile?.industry || 'General Business',
-      vibe: workspace.vibe || profile?.brandTone || profile?.brandVoice || 'Professional & Engaging',
-      currentOffer: offerOverride || workspace.currentOffer || profile?.currentOffer || profile?.businessUSP || 'Special Promotional Offer',
-      targetAudience: profile?.targetAudience || 'General Audience',
-      location: profile?.location || 'Nationwide',
-    };
-
-    this.logger.log(`Generating Instagram post with Firestore context for business ${businessId} (Niche: ${businessContext.niche}, Vibe: ${businessContext.vibe})`);
-
-    // 2. Call Gemini AI generator with 15-second timeout and strict JSON schema
-    const result = await this.aiService.generateInstagramContent(businessContext, {
+    // 1. Generate text copy via Gemini/OpenRouter AI
+    const result = await this.aiService.generateInstagramContent(context, {
       topic,
       offer: offerOverride,
     });
 
-    // 2b. Generate AI creative image via OpenRouter
-    const imagePrompt = `High quality social media ad creative for ${businessContext.businessName} in ${businessContext.niche} industry. ${topic ? `Topic: ${topic}.` : ''} Vibe: ${businessContext.vibe}`;
-    const imageResult = await this.aiService.generateImage(imagePrompt);
+    // 2. Generate composited AI creative image
+    const imageUrl = await this.generateAndCompositeImage(businessId, {
+      topic,
+      offer: offerOverride,
+      caption: result.caption,
+      category: 'Social Post',
+    });
 
-    // 3. Save post draft to Firestore social_posts collection using SocialPostsDao
+    // 3. Save post draft to Firestore social_posts collection
     let savedPost: any = null;
     if (this.firebase.socialPostsDao) {
       try {
         savedPost = await this.firebase.socialPostsDao.create({
           workspaceId: businessId,
-          authorId: (workspace as any).ownerId || 'system',
+          authorId: 'system',
           caption: `${result.caption}\n\n${result.hashtags.join(' ')}`,
-          imageUrl: imageResult.imageUrl,
+          imageUrl,
           scheduleTime: new Date(Date.now() + 24 * 3600 * 1000),
           status: 'DRAFT',
         });
@@ -165,12 +224,11 @@ export class ContentService {
     return {
       caption: result.caption,
       hashtags: result.hashtags,
-      imageUrl: imageResult.imageUrl,
-      imageModel: imageResult.model,
+      imageUrl,
       businessId,
-      workspaceName: businessContext.businessName,
-      niche: businessContext.niche,
-      vibe: businessContext.vibe,
+      workspaceName: context.businessName,
+      niche: context.businessCategory,
+      vibe: context.brandTone,
       postId: savedPost?.id || null,
     };
   }
@@ -257,7 +315,7 @@ export class ContentService {
       strategyData = {
         monthlyMarketingStrategy: `Drive brand authority and acquisition for ${context.businessName} across digital channels.`,
         monthlyCampaignFocus: `${context.businessCategory || 'Product'} Launch & Brand Positioning`,
-        recommendedPostingFrequency: '5 posts per week (20 posts per month)',
+        recommendedPostingFrequency: '3 posts per week (12 posts per month)',
         recommendedPlatforms: ['Instagram', 'Facebook', 'LinkedIn'],
         weeklyThemes: [
           { weekNumber: 1, theme: 'Brand Foundations & Value Prop', objective: 'Educate audience on core offering & USP' },
@@ -294,7 +352,8 @@ export class ContentService {
     businessId: string,
     options: { selectedDays?: string[]; durationWeeks?: number; industry?: string } = {},
   ) {
-    const selectedDays = options.selectedDays || ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+    // Default: 4-week calendar with 3 posts per week (Tuesday, Thursday, Saturday) = 12 posts
+    const selectedDays = options.selectedDays || ['Tuesday', 'Thursday', 'Saturday'];
     const durationWeeks = options.durationWeeks || 4;
 
     this.logger.log(
@@ -384,9 +443,14 @@ export class ContentService {
         });
       }
 
+      // Models can repeat a requested weekday. Enforce exactly one post per
+      // selected day so a three-post week always has three distinct dates.
+      const scheduledWeekPosts = weekPosts.slice(0, selectedDays.length);
+
       // Save each post entry into Firestore contentCalendar collection
-      for (const [postIdx, post] of weekPosts.entries()) {
-        const dayOffset = daysOffsetMap[post.dayName] ?? 0;
+      for (const [postIdx, post] of scheduledWeekPosts.entries()) {
+        const scheduledDayName = selectedDays[postIdx];
+        const dayOffset = daysOffsetMap[scheduledDayName] ?? 0;
         const scheduledTime = new Date(startMonday);
         scheduledTime.setDate(startMonday.getDate() + (week - 1) * 7 + dayOffset);
 
@@ -403,12 +467,26 @@ export class ContentService {
           }
         }
 
-        const seedTerm = `${context.businessName}_${context.industry}_${week}_${postIdx}_${Date.now()}`.replace(/[^a-z0-9]/gi, '');
-        const generatedImageUrl = `https://picsum.photos/seed/${seedTerm}/1080/1080`;
+        // Small delay between creative generation to respect provider rate limits
+        if (createdEntries.length > 0) {
+          await new Promise((resolve) => setTimeout(resolve, 1200));
+        }
+
+        // Generate personalized, composited AI marketing creative for this post
+        const generatedImageUrl = await this.generateAndCompositeImage(businessId, {
+          headline: post.headline,
+          caption: post.caption,
+          cta: post.cta,
+          category: post.category,
+          postType: post.postType,
+          objective: post.objective,
+          graphicPrompt: post.graphicPrompt,
+          topic: post.headline,
+        });
 
         const entryPayload = {
           businessId,
-          dayName: post.dayName,
+          dayName: scheduledDayName,
           platform: post.platform || 'Instagram',
           postType: post.postType || 'Image',
           category: post.category || 'Educational',
@@ -416,7 +494,7 @@ export class ContentService {
           headline: post.headline || `Highlight for ${context.businessName}`,
           caption: post.caption || `Discover what makes ${context.businessName} unique in ${context.industry}.`,
           imageOverlayText: post.imageOverlayText || post.headline || `Meet ${context.businessName}`,
-          imageUrl: post.imageUrl || generatedImageUrl,
+          imageUrl: generatedImageUrl,
           cta: post.cta || 'Learn More',
           hashtags: Array.isArray(post.hashtags) ? post.hashtags : [`#${(context.businessName || 'Brand').replace(/\s+/g, '')}`],
           graphicPrompt: post.graphicPrompt || `Creative promo visual for ${context.businessName}`,
@@ -452,11 +530,40 @@ export class ContentService {
     };
   }
 
+  /**
+   * Creates the first week's plan when a business connects Meta.  Keeping this
+   * idempotent is important because OAuth callbacks and reconnects can occur
+   * more than once.
+   */
+  async ensureInitialWeeklyCalendar(businessId: string) {
+    const existingEntries = await this.firebase.getContentCalendarByBusinessId(businessId);
+    const now = Date.now();
+    const upcomingEntries = existingEntries.filter((entry: any) => {
+      const scheduled = entry.scheduledTime?.toDate?.() || new Date(entry.scheduledTime);
+      return !Number.isNaN(scheduled?.getTime?.()) && scheduled.getTime() >= now;
+    });
+
+    if (upcomingEntries.length > 0) {
+      return {
+        success: true,
+        created: false,
+        message: 'An upcoming content calendar already exists.',
+        entries: upcomingEntries,
+      };
+    }
+
+    const result = await this.generateMonthlyCalendar(businessId, {
+      selectedDays: ['Monday', 'Wednesday', 'Friday'],
+      durationWeeks: 1,
+    });
+    return { ...result, created: true };
+  }
+
   /** Alias method for backward compatibility */
   async generateContentPlan(
     businessId: string,
-    selectedDays: string[] = ['Monday', 'Wednesday', 'Friday'],
-    durationWeeks = 1,
+    selectedDays: string[] = ['Tuesday', 'Thursday', 'Saturday'],
+    durationWeeks = 4,
     industry?: string,
   ) {
     return this.generateMonthlyCalendar(businessId, { selectedDays, durationWeeks, industry });
@@ -824,7 +931,14 @@ export class ContentService {
         category: 'Educational',
         headline: 'Dynamic Post',
         caption: 'Original post content',
+        regenerateCount: 0,
       };
+    }
+
+    // Enforce 2-regeneration limit
+    const currentRegenCount = entry.regenerateCount || 0;
+    if (currentRegenCount >= 2) {
+      throw new BadRequestException('Regeneration limit reached. You can only regenerate each post 2 times.');
     }
 
     const context = await this.businessIntelligence.getBusinessContext(entry.businessId);
@@ -838,14 +952,14 @@ Brand Tone: ${context.brandVoice}
 Original Post Type: ${entry.postType || 'Image'}
 Original Category: ${entry.category || 'Educational'}
 
-Provide a fresh, unique concept.
+Generate eye-catching, scroll-stopping content perfectly tailored to this business.
 Return ONLY valid JSON (no markdown, no code fences):
 {
   "headline": "New compelling hook",
-  "caption": "Fresh engaging caption with call to action",
+  "caption": "Fresh engaging caption with strong call to action and emojis",
   "cta": "Shop Now",
-  "hashtags": ["#tag1", "#tag2", "#tag3"],
-  "graphicPrompt": "New detailed image generation prompt"
+  "hashtags": ["#tag1", "#tag2", "#tag3", "#tag4", "#tag5"],
+  "graphicPrompt": "Detailed AI image prompt: vibrant, professional social media creative for this business"
 }`;
 
     let result: any = null;
@@ -853,7 +967,7 @@ Return ONLY valid JSON (no markdown, no code fences):
       const response = await this.aiService.generateStructuredJson<any>(
         'You are an expert social media copywriter. Return valid JSON.',
         prompt,
-        { temperature: 0.8, maxTokens: 1500 },
+        { temperature: 0.9, maxTokens: 1500 },
         'ContentService.regenerateSinglePost',
       );
       result = response.data;
@@ -864,11 +978,27 @@ Return ONLY valid JSON (no markdown, no code fences):
     if (!result) {
       result = {
         headline: `Fresh Focus: ${context.businessName}`,
-        caption: `Experience quality with ${context.businessName}. Crafted specifically for ${context.targetAudience}.`,
+        caption: `✨ Experience quality with ${context.businessName}. Crafted specifically for ${context.targetAudience}. Click the link in bio to discover more! 👇`,
         cta: 'Discover More',
-        hashtags: ['#Quality', '#Brand', '#Innovation'],
-        graphicPrompt: `Modern product visual for ${context.businessName}`,
+        hashtags: ['#Quality', '#Brand', '#Innovation', '#Trending', '#MustHave'],
+        graphicPrompt: `Modern professional social media creative for ${context.businessName}, vibrant colors, eye-catching design`,
       };
+    }
+
+    // Regenerate personalized AI creative image & overlay
+    let newImageUrl = entry.imageUrl;
+    try {
+      newImageUrl = await this.generateAndCompositeImage(entry.businessId, {
+        headline: result.headline || entry.headline,
+        caption: result.caption || entry.caption,
+        cta: result.cta || entry.cta,
+        category: entry.category,
+        postType: entry.postType,
+        graphicPrompt: result.graphicPrompt,
+        topic: result.headline || entry.headline,
+      });
+    } catch (imgErr: any) {
+      this.logger.warn(`Image regeneration failed, keeping existing image: ${imgErr.message}`);
     }
 
     const updated = await this.editPost(
@@ -879,6 +1009,8 @@ Return ONLY valid JSON (no markdown, no code fences):
         cta: result.cta || entry.cta,
         hashtags: result.hashtags || entry.hashtags,
         graphicPrompt: result.graphicPrompt || entry.graphicPrompt,
+        imageUrl: newImageUrl,
+        regenerateCount: currentRegenCount + 1,
       },
       user,
     );
@@ -893,6 +1025,71 @@ Return ONLY valid JSON (no markdown, no code fences):
     });
 
     return updated;
+  }
+
+  /**
+   * Immediately publishes a calendar entry to Facebook and/or Instagram via Meta Graph API.
+   * Platform: 'facebook' | 'instagram' | 'both'
+   */
+  async postNow(id: string, platform = 'both', user = 'User') {
+    const entry = await this.firebase.getContentCalendarEntryById(id);
+    if (!entry) throw new NotFoundException(`Calendar entry ${id} not found`);
+
+    const businessId = entry.businessId;
+    const fullCaption = entry.hashtags?.length
+      ? `${entry.caption}\n\n${Array.isArray(entry.hashtags) ? entry.hashtags.join(' ') : entry.hashtags}`
+      : entry.caption || '';
+    const imageUrl = entry.imageUrl || null;
+
+    const results: any = {};
+
+    // Publish to Facebook
+    if (platform === 'facebook' || platform === 'both') {
+      try {
+        const fbResult = await this.integrations.publishPagePost(businessId, fullCaption, imageUrl);
+        results.facebook = fbResult;
+        this.logger.log(`[postNow] Facebook result for entry ${id}: ${JSON.stringify(fbResult)}`);
+      } catch (err: any) {
+        results.facebook = { success: false, error: err.message };
+        this.logger.error(`[postNow] Facebook publish failed for entry ${id}: ${err.message}`);
+      }
+    }
+
+    // Publish to Instagram
+    if (platform === 'instagram' || platform === 'both') {
+      try {
+        const igResult = await this.integrations.publishInstagramPost(businessId, fullCaption, imageUrl);
+        results.instagram = igResult;
+        this.logger.log(`[postNow] Instagram result for entry ${id}: ${JSON.stringify(igResult)}`);
+      } catch (err: any) {
+        results.instagram = { success: false, error: err.message };
+        this.logger.error(`[postNow] Instagram publish failed for entry ${id}: ${err.message}`);
+      }
+    }
+
+    // Determine overall success
+    const isSuccess = Object.values(results).some((r: any) => r?.success !== false);
+
+    // Update entry status to POSTED
+    if (isSuccess) {
+      await this.editPost(id, { status: 'POSTED', publishedAt: new Date() }, user);
+    }
+
+    await this.firebase.createCalendarAuditTrail({
+      action: isSuccess ? 'POST_PUBLISHED_NOW' : 'POST_PUBLISH_FAILED',
+      previousValue: { status: entry.status },
+      newValue: { status: isSuccess ? 'POSTED' : entry.status, platform, results },
+      user,
+      businessId,
+      calendarEntryId: id,
+    });
+
+    return {
+      success: isSuccess,
+      entryId: id,
+      platform,
+      results,
+    };
   }
 
   async regenerateCalendarEntry(id: string) {

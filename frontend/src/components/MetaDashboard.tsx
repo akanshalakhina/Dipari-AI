@@ -1,14 +1,22 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, Activity } from 'lucide-react';
+import { RefreshCw, Activity, ExternalLink, Globe } from 'lucide-react';
 import { api } from '../services/api';
 
 interface MetaDashboardProps {
   businessId: string;
   addToast: (title: string, message: string, type: 'success' | 'alert' | 'info') => void;
   onNavigateToPage: (page: string) => void;
+  metaBusinessId?: string;
+  metaAssetId?: string;
 }
 
-export default function MetaDashboard({ businessId, addToast, onNavigateToPage }: MetaDashboardProps) {
+export default function MetaDashboard({
+  businessId,
+  addToast,
+  onNavigateToPage,
+  metaBusinessId = '877321611329713',
+  metaAssetId = '1252998747892665',
+}: MetaDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<any>(null);
   const [dailyData, setDailyData] = useState<any[]>([]);
@@ -47,6 +55,8 @@ export default function MetaDashboard({ businessId, addToast, onNavigateToPage }
 
   const fmt = (val: number) => `$${(val || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+  const metaSuiteUrl = `https://business.facebook.com/latest/insights/overview?business_id=${metaBusinessId}&asset_id=${metaAssetId}`;
+
   // SVG Chart calculation parameters
   const chartHeight = 160;
   const chartWidth = 520;
@@ -70,12 +80,50 @@ export default function MetaDashboard({ businessId, addToast, onNavigateToPage }
       {/* Upper header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
-          <h1 style={{ fontSize: '2.2rem', fontFamily: 'var(--font-display)', marginBottom: 8 }}>Meta Ads Manager</h1>
-          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.95rem' }}>Direct Marketing API integrations and real-time performance diagnostics.</p>
+          <h1 style={{ fontSize: '2.2rem', fontFamily: 'var(--font-display)', marginBottom: 8 }}>Meta Ads & Insights Manager</h1>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.95rem' }}>Direct Meta Business Suite & Marketing API real-time performance diagnostics.</p>
         </div>
-        <button className="btn-secondary" onClick={loadDashboardData}>
-          <RefreshCw size={14} /> Sync Meta Insights
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <a
+            href={metaSuiteUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="btn-primary"
+            style={{ padding: '10px 16px', display: 'flex', gap: 8, alignItems: 'center', fontSize: '0.85rem', textDecoration: 'none' }}
+          >
+            <ExternalLink size={14} /> Open Meta Business Suite ↗
+          </a>
+          <button className="btn-secondary" onClick={loadDashboardData}>
+            <RefreshCw size={14} /> Sync Meta Insights
+          </button>
+        </div>
+      </div>
+
+      {/* Meta Business Suite Direct Deep-Link Banner */}
+      <div className="glass-panel" style={{ padding: 24, border: '1px solid rgba(0, 118, 163, 0.3)', background: 'linear-gradient(135deg, rgba(11,34,64,0.4) 0%, rgba(4,13,26,0.6) 100%)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Globe size={18} style={{ color: 'var(--color-primary)' }} />
+              <h3 style={{ fontSize: '1.15rem', fontWeight: 800 }}>Meta Business Suite Insights Integration</h3>
+            </div>
+            <p style={{ color: 'var(--color-text-muted)', fontSize: '0.85rem', marginTop: 4 }}>
+              Active Asset: <strong>Page Asset ID: {metaAssetId}</strong> • Business Portfolio ID: <strong>{metaBusinessId}</strong>
+            </p>
+          </div>
+
+          <a
+            href={metaSuiteUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              padding: '8px 16px', borderRadius: 8, background: '#0076a3', color: '#ffffff',
+              fontSize: '0.8rem', fontWeight: 700, textDecoration: 'none', display: 'flex', gap: 6, alignItems: 'center'
+            }}
+          >
+            Open Suite Overview ↗
+          </a>
+        </div>
       </div>
 
       {/* Metrics Row */}

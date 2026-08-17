@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Download, Filter, MessageSquare, PhoneCall, Mail, Sparkles, RefreshCw } from 'lucide-react';
+import { Users, Search, Download, Filter, MessageSquare, PhoneCall, Mail, Sparkles, RefreshCw, X, Copy, Check } from 'lucide-react';
 import { api } from '../services/api';
 
 interface LeadsDashboardProps {
@@ -19,6 +19,7 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
   const [aiAssistData, setAiAssistData] = useState<any>(null);
   const [loadingAi, setLoadingAi] = useState(false);
   const [generatedText, setGeneratedText] = useState<string>('');
+  const [copied, setCopied] = useState(false);
 
   const fetchLeads = async () => {
     if (!businessId) return;
@@ -84,6 +85,7 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
     setSelectedLead(lead);
     setLoadingAi(true);
     setGeneratedText('');
+    setCopied(false);
     try {
       const data = await api.leads.getAiAssist(lead.id);
       setAiAssistData(data);
@@ -97,6 +99,7 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
   const handleGenerateWhatsApp = async () => {
     if (!selectedLead) return;
     setLoadingAi(true);
+    setCopied(false);
     try {
       const res = await api.leads.generateWhatsApp(selectedLead.id);
       setGeneratedText(res.message || '');
@@ -110,6 +113,7 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
   const handleGenerateEmail = async () => {
     if (!selectedLead) return;
     setLoadingAi(true);
+    setCopied(false);
     try {
       const res = await api.leads.generateEmail(selectedLead.id);
       setGeneratedText(res.message || '');
@@ -123,6 +127,7 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
   const handleGenerateCallScript = async () => {
     if (!selectedLead) return;
     setLoadingAi(true);
+    setCopied(false);
     try {
       const res = await api.leads.generateCallScript(selectedLead.id);
       setGeneratedText(res.script || '');
@@ -138,165 +143,253 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
     return (l.status || 'NEW') === selectedStatus;
   });
 
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'NEW': return { bg: 'rgba(16, 185, 129, 0.12)', color: '#10b981', border: 'rgba(16, 185, 129, 0.3)' };
+      case 'CONTACTED': return { bg: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', border: 'rgba(99, 102, 241, 0.3)' };
+      case 'QUALIFIED': return { bg: 'rgba(168, 85, 247, 0.12)', color: '#a855f7', border: 'rgba(168, 85, 247, 0.3)' };
+      case 'CONVERTED': return { bg: 'rgba(236, 72, 153, 0.12)', color: '#ec4899', border: 'rgba(236, 72, 153, 0.3)' };
+      case 'ARCHIVED': return { bg: 'rgba(100, 116, 139, 0.12)', color: '#64748b', border: 'rgba(100, 116, 139, 0.3)' };
+      default: return { bg: 'rgba(99, 102, 241, 0.12)', color: '#6366f1', border: 'rgba(99, 102, 241, 0.3)' };
+    }
+  };
+
   return (
-    <div className="space-y-6">
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+    <main style={{ padding: 32, maxWidth: 1100, margin: '0 auto', width: '100%' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16, marginBottom: 24 }}>
         <div>
-          <div className="flex items-center gap-2">
-            <Users className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
-            <h2 className="text-xl font-bold text-slate-900 dark:text-white">Lead Management CRM & AI Assistant</h2>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Users size={26} color="#6366f1" />
+            <h1 style={{ margin: 0, fontSize: '1.7rem', fontWeight: 800, fontFamily: 'var(--font-display)' }}>
+              Lead Management
+            </h1>
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Meta Lead Ads sync, lead tracking, CSV export, and AI-powered follow-up generator.
-          </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={fetchLeads}
+            className="btn-secondary"
+            title="Refresh Leads"
+            style={{ padding: '10px 14px', borderRadius: 10 }}
+          >
+            <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
+          </button>
           <button
             onClick={handleExportCsv}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 rounded-xl font-semibold text-xs transition-all border border-slate-200 dark:border-slate-700"
+            className="btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 10, fontSize: '0.875rem' }}
           >
-            <Download className="w-4 h-4" /> Export CSV
+            <Download size={16} />
+            <span>Export CSV</span>
           </button>
         </div>
       </div>
 
       {/* Metric Cards */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-semibold text-slate-500">Total Leads</span>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{stats.total || 0}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, marginBottom: 24 }}>
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--color-text-muted)', letterSpacing: '0.05em' }}>
+            Total Leads
           </div>
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">New Leads</span>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{stats.byStatus?.NEW || 0}</div>
-          </div>
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">Contacted</span>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{stats.byStatus?.CONTACTED || 0}</div>
-          </div>
-          <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-            <span className="text-xs font-semibold text-purple-600 dark:text-purple-400">Converted</span>
-            <div className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{stats.byStatus?.CONVERTED || 0}</div>
+          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--color-text-main)', marginTop: 6 }}>
+            {stats?.total || leads.length || 0}
           </div>
         </div>
-      )}
+
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#10b981', letterSpacing: '0.05em' }}>
+            New Leads
+          </div>
+          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#10b981', marginTop: 6 }}>
+            {stats?.byStatus?.NEW || leads.filter(l => (l.status || 'NEW') === 'NEW').length}
+          </div>
+        </div>
+
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#6366f1', letterSpacing: '0.05em' }}>
+            Contacted
+          </div>
+          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#6366f1', marginTop: 6 }}>
+            {stats?.byStatus?.CONTACTED || leads.filter(l => l.status === 'CONTACTED').length}
+          </div>
+        </div>
+
+        <div className="glass-panel" style={{ padding: 20, borderRadius: 16 }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: '#ec4899', letterSpacing: '0.05em' }}>
+            Converted
+          </div>
+          <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#ec4899', marginTop: 6 }}>
+            {stats?.byStatus?.CONVERTED || leads.filter(l => l.status === 'CONVERTED').length}
+          </div>
+        </div>
+      </div>
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col md:flex-row gap-3 bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
-        <form onSubmit={handleSearch} className="flex-1 flex gap-2">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search leads by name, email, or phone..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </div>
-          <button
-            type="submit"
-            className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 transition-colors"
-          >
-            Search
-          </button>
-        </form>
+      <div className="glass-panel" style={{ padding: 16, marginBottom: 24, borderRadius: 16 }}>
+        <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+          <form onSubmit={handleSearch} style={{ flex: 1, display: 'flex', gap: 10, minWidth: 280 }}>
+            <div style={{ position: 'relative', flex: 1 }}>
+              <Search size={16} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+              <input
+                type="text"
+                placeholder="Search leads by name, email, or phone..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                style={{
+                  width: '100%',
+                  paddingLeft: 38,
+                  paddingRight: 14,
+                  paddingTop: 10,
+                  paddingBottom: 10,
+                  fontSize: '0.85rem',
+                  borderRadius: 10,
+                  border: '1px solid var(--color-border)',
+                  background: 'var(--color-bg-start)',
+                  color: 'var(--color-text-main)',
+                  outline: 'none'
+                }}
+              />
+            </div>
+            <button type="submit" className="btn-secondary" style={{ padding: '10px 18px', borderRadius: 10, fontSize: '0.85rem', fontWeight: 600 }}>
+              Search
+            </button>
+          </form>
 
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400" />
-          <select
-            value={selectedStatus}
-            onChange={(e) => setSelectedStatus(e.target.value)}
-            className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-slate-900 dark:text-white focus:outline-none"
-          >
-            <option value="ALL">All Statuses</option>
-            <option value="NEW">New</option>
-            <option value="CONTACTED">Contacted</option>
-            <option value="QUALIFIED">Qualified</option>
-            <option value="CONVERTED">Converted</option>
-            <option value="ARCHIVED">Archived</option>
-          </select>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Filter size={16} style={{ color: 'var(--color-text-muted)' }} />
+            <select
+              value={selectedStatus}
+              onChange={(e) => setSelectedStatus(e.target.value)}
+              style={{
+                padding: '10px 14px',
+                fontSize: '0.85rem',
+                borderRadius: 10,
+                border: '1px solid var(--color-border)',
+                background: 'var(--color-bg-start)',
+                color: 'var(--color-text-main)',
+                cursor: 'pointer',
+                fontWeight: 600
+              }}
+            >
+              <option value="ALL">All Statuses</option>
+              <option value="NEW">New</option>
+              <option value="CONTACTED">Contacted</option>
+              <option value="QUALIFIED">Qualified</option>
+              <option value="CONVERTED">Converted</option>
+              <option value="ARCHIVED">Archived</option>
+            </select>
+          </div>
         </div>
       </div>
 
       {/* Leads Table */}
       {loading ? (
-        <div className="flex items-center justify-center p-12 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800">
-          <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
-          <span className="ml-2 text-sm text-slate-500">Loading leads...</span>
+        <div className="glass-panel" style={{ padding: 48, textAlign: 'center', borderRadius: 16 }}>
+          <RefreshCw size={24} className="animate-spin" style={{ color: '#6366f1', margin: '0 auto 12px' }} />
+          <div style={{ color: 'var(--color-text-muted)', fontSize: '0.9rem' }}>Loading customer leads...</div>
         </div>
       ) : filteredLeads.length === 0 ? (
-        <div className="text-center py-16 px-4 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-300 dark:border-slate-800">
-          <Users className="w-12 h-12 text-slate-400 mx-auto mb-3" />
-          <h3 className="text-lg font-bold text-slate-800 dark:text-white">No Leads Found</h3>
-          <p className="text-sm text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1">
+        <div className="glass-panel" style={{ padding: 48, textAlign: 'center', borderRadius: 16, borderStyle: 'dashed' }}>
+          <Users size={40} style={{ color: 'var(--color-text-muted)', margin: '0 auto 12px', opacity: 0.5 }} />
+          <h3 style={{ margin: '0 0 6px', fontSize: '1.1rem', fontWeight: 700 }}>No Leads Found</h3>
+          <p style={{ color: 'var(--color-text-muted)', fontSize: '0.875rem', maxWidth: 420, margin: '0 auto' }}>
             Connect Meta Lead Ads or capture leads via your website form to view them in your CRM.
           </p>
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+        <div className="glass-panel" style={{ borderRadius: 16, overflow: 'hidden' }}>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.875rem' }}>
               <thead>
-                <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400 text-xs font-semibold uppercase tracking-wider border-b border-slate-200 dark:border-slate-800">
-                  <th className="py-3.5 px-4">Lead Name</th>
-                  <th className="py-3.5 px-4">Contact Info</th>
-                  <th className="py-3.5 px-4">Source & Campaign</th>
-                  <th className="py-3.5 px-4">Status</th>
-                  <th className="py-3.5 px-4 text-right">AI Actions</th>
+                <tr style={{ background: 'rgba(99, 102, 241, 0.05)', borderBottom: '1px solid var(--color-border)' }}>
+                  <th style={{ padding: '14px 20px', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Lead Name</th>
+                  <th style={{ padding: '14px 20px', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Contact Info</th>
+                  <th style={{ padding: '14px 20px', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Source & Campaign</th>
+                  <th style={{ padding: '14px 20px', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-muted)' }}>Status</th>
+                  <th style={{ padding: '14px 20px', fontWeight: 700, fontSize: '0.75rem', textTransform: 'uppercase', color: 'var(--color-text-muted)', textAlign: 'right' }}>AI Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                {filteredLeads.map((lead) => (
-                  <tr key={lead.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/50 transition-colors">
-                    <td className="py-4 px-4 font-semibold text-slate-900 dark:text-white">
-                      <div>
-                        {lead.name}
-                        {lead.requirement && (
-                          <p className="text-[11px] text-slate-500 font-normal line-clamp-1 mt-0.5">{lead.requirement}</p>
-                        )}
-                      </div>
-                    </td>
+              <tbody>
+                {filteredLeads.map((lead) => {
+                  const statusStyle = getStatusColor(lead.status || 'NEW');
+                  return (
+                    <tr key={lead.id} style={{ borderBottom: '1px solid var(--color-border)', transition: 'background 0.2s' }}>
+                      <td style={{ padding: '16px 20px', fontWeight: 700 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{
+                            width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, #6366f1, #a855f7)',
+                            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '0.85rem'
+                          }}>
+                            {(lead.name || 'L').charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div>{lead.name}</div>
+                            {lead.requirement && (
+                              <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', fontWeight: 400, marginTop: 2 }}>
+                                {lead.requirement}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </td>
 
-                    <td className="py-4 px-4 text-slate-600 dark:text-slate-300">
-                      <div>{lead.email}</div>
-                      {lead.phone && <div className="text-[11px] text-slate-400">{lead.phone}</div>}
-                    </td>
+                      <td style={{ padding: '16px 20px' }}>
+                        <div style={{ fontWeight: 500 }}>{lead.email}</div>
+                        {lead.phone && <div style={{ fontSize: '0.75rem', color: 'var(--color-text-muted)', marginTop: 2 }}>{lead.phone}</div>}
+                      </td>
 
-                    <td className="py-4 px-4">
-                      <span className="inline-block bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-0.5 rounded text-[10px] font-semibold">
-                        {lead.source || 'MANUAL'}
-                      </span>
-                      {lead.campaign && <div className="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5">{lead.campaign}</div>}
-                    </td>
+                      <td style={{ padding: '16px 20px' }}>
+                        <span style={{
+                          display: 'inline-block', padding: '3px 8px', borderRadius: 6, fontSize: '0.7rem', fontWeight: 700,
+                          background: 'rgba(99, 102, 241, 0.1)', color: '#6366f1'
+                        }}>
+                          {lead.source || 'META_ADS'}
+                        </span>
+                        {lead.campaign && <div style={{ fontSize: '0.75rem', color: '#6366f1', marginTop: 4, fontWeight: 600 }}>{lead.campaign}</div>}
+                      </td>
 
-                    <td className="py-4 px-4">
-                      <select
-                        value={lead.status || 'NEW'}
-                        onChange={(e) => handleStatusChange(lead.id, e.target.value)}
-                        className="text-xs bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1 font-semibold text-slate-800 dark:text-slate-200"
-                      >
-                        <option value="NEW">NEW</option>
-                        <option value="CONTACTED">CONTACTED</option>
-                        <option value="QUALIFIED">QUALIFIED</option>
-                        <option value="CONVERTED">CONVERTED</option>
-                        <option value="ARCHIVED">ARCHIVED</option>
-                      </select>
-                    </td>
+                      <td style={{ padding: '16px 20px' }}>
+                        <select
+                          value={lead.status || 'NEW'}
+                          onChange={(e) => handleStatusChange(lead.id, e.target.value)}
+                          style={{
+                            padding: '6px 10px',
+                            fontSize: '0.75rem',
+                            borderRadius: 8,
+                            border: `1px solid ${statusStyle.border}`,
+                            background: statusStyle.bg,
+                            color: statusStyle.color,
+                            fontWeight: 700,
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value="NEW">NEW</option>
+                          <option value="CONTACTED">CONTACTED</option>
+                          <option value="QUALIFIED">QUALIFIED</option>
+                          <option value="CONVERTED">CONVERTED</option>
+                          <option value="ARCHIVED">ARCHIVED</option>
+                        </select>
+                      </td>
 
-                    <td className="py-4 px-4 text-right">
-                      <button
-                        onClick={() => handleOpenAiAssist(lead)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-indigo-50 dark:bg-indigo-950 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-100 rounded-xl transition-colors"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" /> AI Assist
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                      <td style={{ padding: '16px 20px', textAlign: 'right' }}>
+                        <button
+                          onClick={() => handleOpenAiAssist(lead)}
+                          className="btn-secondary"
+                          style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px',
+                            borderRadius: 10, fontSize: '0.75rem', fontWeight: 700, color: '#6366f1',
+                            borderColor: 'rgba(99, 102, 241, 0.3)', background: 'rgba(99, 102, 241, 0.08)'
+                          }}
+                        >
+                          <Sparkles size={14} />
+                          <span>AI Assist</span>
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -305,113 +398,134 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
 
       {/* AI Lead Assistant Modal / Drawer */}
       {selectedLead && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-2xl w-full p-6 border border-slate-200 dark:border-slate-800 shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15, 23, 42, 0.65)',
+          backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }}>
+          <div className="glass-panel" style={{
+            maxWidth: 640, width: '100%', padding: 28, borderRadius: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)',
+            maxHeight: '90vh', overflowY: 'auto'
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--color-border)', paddingBottom: 16, marginBottom: 20 }}>
               <div>
-                <h3 className="font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-indigo-600" /> AI Assistant for {selectedLead.name}
+                <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Sparkles size={18} color="#6366f1" /> AI Assistant for {selectedLead.name}
                 </h3>
-                <p className="text-xs text-slate-500">{selectedLead.email} • {selectedLead.phone || 'No phone'}</p>
+                <p style={{ margin: '4px 0 0', fontSize: '0.8rem', color: 'var(--color-text-muted)' }}>
+                  {selectedLead.email} • {selectedLead.phone || 'No phone'}
+                </p>
               </div>
-              <button
-                onClick={() => setSelectedLead(null)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-              >
-                ✕
+              <button onClick={() => setSelectedLead(null)} style={{ background: 'none', border: 'none', color: 'var(--color-text-muted)', cursor: 'pointer' }}>
+                <X size={20} />
               </button>
             </div>
 
             {loadingAi ? (
-              <div className="flex items-center justify-center p-8">
-                <RefreshCw className="w-6 h-6 animate-spin text-indigo-600" />
-                <span className="ml-2 text-sm text-slate-500">Generating AI insights...</span>
+              <div style={{ padding: 40, textAlign: 'center' }}>
+                <RefreshCw size={24} className="animate-spin" style={{ color: '#6366f1', margin: '0 auto 12px' }} />
+                <div style={{ fontSize: '0.875rem', color: 'var(--color-text-muted)' }}>Analyzing lead data with AI...</div>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
                 {/* Priority & Summary Banner */}
                 {aiAssistData && (
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-indigo-50/50 dark:bg-indigo-950/40 p-4 rounded-xl border border-indigo-100 dark:border-indigo-900/40">
-                    <div className="md:col-span-2">
-                      <span className="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400">AI Summary</span>
-                      <p className="text-xs text-slate-700 dark:text-slate-300 mt-0.5">{aiAssistData.summary}</p>
+                  <div style={{
+                    padding: 16, borderRadius: 12, background: 'rgba(99, 102, 241, 0.08)',
+                    border: '1px solid rgba(99, 102, 241, 0.2)', display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 16
+                  }}>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase' }}>AI Lead Analysis</div>
+                      <div style={{ fontSize: '0.85rem', color: 'var(--color-text-main)', marginTop: 4 }}>{aiAssistData.summary}</div>
                     </div>
                     <div>
-                      <span className="text-[11px] font-semibold text-slate-500">Suggested Priority</span>
-                      <div className="mt-1">
-                        <span
-                          className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
-                            aiAssistData.priority?.level === 'HIGH'
-                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-950 dark:text-rose-300'
-                              : aiAssistData.priority?.level === 'MEDIUM'
-                              ? 'bg-amber-100 text-amber-700 dark:bg-amber-950 dark:text-amber-300'
-                              : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                          }`}
-                        >
-                          {aiAssistData.priority?.level || 'MEDIUM'} PRIORITY
-                        </span>
-                        <p className="text-[10px] text-slate-500 mt-1">{aiAssistData.priority?.reason}</p>
+                      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase' }}>Priority</div>
+                      <div style={{
+                        display: 'inline-block', marginTop: 4, padding: '4px 10px', borderRadius: 20, fontSize: '0.75rem', fontWeight: 800,
+                        background: aiAssistData.priority?.level === 'HIGH' ? 'rgba(239, 68, 68, 0.15)' : 'rgba(245, 158, 11, 0.15)',
+                        color: aiAssistData.priority?.level === 'HIGH' ? '#ef4444' : '#f59e0b'
+                      }}>
+                        {aiAssistData.priority?.level || 'MEDIUM'} PRIORITY
                       </div>
                     </div>
                   </div>
                 )}
 
                 {/* AI Action Tabs */}
-                <div className="flex gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <button
                     onClick={handleGenerateWhatsApp}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300 hover:bg-emerald-100"
+                    style={{
+                      flex: 1, padding: '10px 14px', borderRadius: 10, border: 'none', background: '#10b981',
+                      color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                    }}
                   >
-                    <MessageSquare className="w-3.5 h-3.5" /> WhatsApp Template
+                    <MessageSquare size={14} /> WhatsApp Message
                   </button>
                   <button
                     onClick={handleGenerateEmail}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 dark:bg-blue-950 dark:text-blue-300 hover:bg-blue-100"
+                    style={{
+                      flex: 1, padding: '10px 14px', borderRadius: 10, border: 'none', background: '#6366f1',
+                      color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                    }}
                   >
-                    <Mail className="w-3.5 h-3.5" /> Email Draft
+                    <Mail size={14} /> Email Draft
                   </button>
                   <button
                     onClick={handleGenerateCallScript}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-purple-50 text-purple-700 dark:bg-purple-950 dark:text-purple-300 hover:bg-purple-100"
+                    style={{
+                      flex: 1, padding: '10px 14px', borderRadius: 10, border: 'none', background: '#a855f7',
+                      color: '#fff', fontSize: '0.8rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6
+                    }}
                   >
-                    <PhoneCall className="w-3.5 h-3.5" /> Call Script
+                    <PhoneCall size={14} /> Call Script
                   </button>
                 </div>
 
                 {/* Output Text Area */}
                 {generatedText ? (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Generated Material:</span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>Generated Material:</span>
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(generatedText);
+                          setCopied(true);
                           onToast('Copied', 'Text copied to clipboard!', 'info');
+                          setTimeout(() => setCopied(false), 2000);
                         }}
-                        className="text-[11px] font-semibold text-indigo-600 hover:underline"
+                        style={{
+                          background: 'none', border: 'none', color: '#6366f1', fontSize: '0.75rem',
+                          fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4
+                        }}
                       >
-                        Copy to Clipboard
+                        {copied ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                        <span>{copied ? 'Copied!' : 'Copy to Clipboard'}</span>
                       </button>
                     </div>
                     <textarea
                       readOnly
                       rows={8}
                       value={generatedText}
-                      className="w-full text-xs font-mono bg-slate-50 dark:bg-slate-800 p-3 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none"
+                      style={{
+                        width: '100%', fontSize: '0.85rem', fontFamily: 'monospace', padding: 14, borderRadius: 12,
+                        border: '1px solid var(--color-border)', background: 'var(--color-bg-start)', color: 'var(--color-text-main)',
+                        outline: 'none', resize: 'vertical'
+                      }}
                     />
                   </div>
                 ) : (
-                  <div className="text-center py-6 text-xs text-slate-400">
+                  <div style={{ padding: 24, textAlign: 'center', fontSize: '0.85rem', color: 'var(--color-text-muted)', border: '1px dashed var(--color-border)', borderRadius: 12 }}>
                     Click one of the buttons above to generate a WhatsApp message, Email reply, or Call script for this lead.
                   </div>
                 )}
               </div>
             )}
 
-            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+            <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--color-border)', display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => setSelectedLead(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800 rounded-xl"
+                className="btn-secondary"
+                style={{ padding: '8px 18px', borderRadius: 10, fontSize: '0.85rem', fontWeight: 600 }}
               >
                 Close
               </button>
@@ -419,6 +533,6 @@ export const LeadsDashboard: React.FC<LeadsDashboardProps> = ({ businessId, onTo
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 };

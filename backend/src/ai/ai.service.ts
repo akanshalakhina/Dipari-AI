@@ -91,7 +91,7 @@ export class AiService {
     this.apiKey = process.env.OPENROUTER_API_KEY || '';
     this.defaultModel = process.env.OPENROUTER_MODEL || 'google/gemma-4-31b-it:free';
     this.groqApiKey = process.env.GROQ_API_KEY || '';
-    this.groqModel = process.env.GROQ_MODEL || 'llama-3.3-70b-versatile';
+    this.groqModel = process.env.GROQ_MODEL || 'llama-3.3-70b-specdec';
 
     if (!this.apiKey && !this.groqApiKey) {
       this.logger.warn('Neither OPENROUTER_API_KEY nor GROQ_API_KEY is set. AI features will use fallback responses.');
@@ -520,7 +520,6 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
     const timeoutMs = 15_000;
     let responseText = '';
 
-    // Primary: OpenRouter AI Gateway with Gemini 2.5 Flash model
     if (this.apiKey) {
       this.logger.log('[AIService] Routing Gemini Instagram text generation via OpenRouter (google/gemini-2.5-flash).');
       try {
@@ -539,7 +538,6 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
       }
     }
 
-    // Direct Gemini REST API Fallback
     const geminiApiKey = process.env.GEMINI_API_KEY;
     if (!responseText && geminiApiKey) {
       try {
@@ -562,16 +560,14 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
         );
         responseText = res.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
       } catch (err: any) {
-        this.logger.warn(`Direct Gemini API fallback also failed (${err.message}). Utilizing structured fallback content.`);
+        this.logger.warn(`Direct Gemini API fallback failed: ${err.message}`);
       }
     }
 
     const parsed = this.parseJson<{ caption: string; hashtags: string[] }>(responseText);
-
     const caption = parsed?.caption || `🚀 Exciting news from ${businessContext.businessName || 'our brand'}!\n\nCheck out our current offer: ${businessContext.currentOffer || 'Contact us today for special offers.'}\n\n👉 Click the link in our bio to learn more!`;
     let hashtags = Array.isArray(parsed?.hashtags) ? parsed.hashtags : [];
 
-    // Guarantee exactly 15 hashtags
     if (hashtags.length < 15) {
       const defaultHashtags = [
         '#InstagramMarketing', '#BusinessGrowth', '#SocialMediaStrategy', '#BrandAwareness',
@@ -588,88 +584,42 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
       hashtags = hashtags.slice(0, 15);
     }
 
-    // Ensure '#' prefix
     hashtags = hashtags.map((t) => (t.startsWith('#') ? t : `#${t}`));
-
     return { caption, hashtags };
   }
 
   /**
-   * AI Image Generation via OpenRouter API.
-   * Calls OpenRouter image model (e.g. black-forest-labs/flux-1-schnell or stabilityai/stable-diffusion-xl-base-1.0)
-   * with fallback to curated high-resolution image generator.
+   * AI Image Generation via Flux / Pollinations high-resolution model.
+   * Generates tailored advertising visual background assets based on complete Business Context.
    */
   async generateImage(
     prompt: string,
     options?: { aspect_ratio?: string },
   ): Promise<{ success: boolean; imageUrl: string; model: string }> {
     const startedAt = Date.now();
-    const model = 'black-forest-labs/flux-1-schnell';
-    this.logger.log(`[AIService] Generating image via OpenRouter | model=${model} | prompt="${prompt.substring(0, 60)}..."`);
+    const cleanPrompt = prompt.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 
-    if (this.apiKey) {
-      try {
-        const response = await axios.post(
-          this.baseUrl,
-          {
-            model,
-            messages: [
-              {
-                role: 'user',
-                content: [
-                  {
-                    type: 'text',
-                    text: `Generate an image for: ${prompt}. Aspect ratio: ${options?.aspect_ratio || '1:1'}`,
-                  },
-                ],
-              },
-            ],
-          },
-          {
-            headers: {
-              Authorization: `Bearer ${this.apiKey}`,
-              'Content-Type': 'application/json',
-              'HTTP-Referer': 'https://campaignai.app',
-              'X-Title': 'DIPARI AI',
-            },
-            timeout: this.timeoutMs,
-          },
-        );
-
-        const messageContent = response.data?.choices?.[0]?.message?.content;
-        let imageUrl = '';
-
-        if (typeof messageContent === 'string') {
-          const urlMatch = messageContent.match(/https?:\/\/[^\s"']+\.(?:png|jpg|jpeg|webp)/i) || messageContent.match(/https:\/\/openrouter\.ai\/[^\s"']+/i);
-          if (urlMatch) imageUrl = urlMatch[0];
-        } else if (Array.isArray(messageContent)) {
-          for (const part of messageContent) {
-            if (part.type === 'image_url' && part.image_url?.url) {
-              imageUrl = part.image_url.url;
-              break;
-            }
-          }
-        }
-
-        if (imageUrl) {
-          const durationMs = Date.now() - startedAt;
-          this.logger.log(`[AIService] Image generation via OpenRouter succeeded | duration=${durationMs}ms`);
-          return { success: true, imageUrl, model };
-        }
-      } catch (err: any) {
-        this.logger.warn(`[AIService] OpenRouter image model (${model}) call failed: ${err.message}. Using curated high-res fallback.`);
-      }
+    let width = 768;
+    let height = 768;
+    const ar = options?.aspect_ratio || '1:1';
+    if (ar === '4:5') {
+      height = 960;
+    } else if (ar === '9:16') {
+      width = 576;
+      height = 1024;
     }
 
-    // High-resolution curated image generation fallback based on prompt keywords
-    const keywords = encodeURIComponent(prompt.split(' ').slice(0, 4).join(','));
-    const fallbackImageUrl = `https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80&sig=${Math.floor(Math.random() * 10000)}&kw=${keywords}`;
+    const encodedPrompt = encodeURIComponent(cleanPrompt);
+    const timestamp = Date.now();
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&seed=${timestamp}`;
+
     const durationMs = Date.now() - startedAt;
+    this.logger.log(`[AIService] Generated AI image URL (${width}x${height}) in ${durationMs}ms: "${cleanPrompt.substring(0, 90)}..."`);
 
     return {
       success: true,
-      imageUrl: fallbackImageUrl,
-      model: `${model} (fallback)`,
+      imageUrl,
+      model: 'pollinations-turbo',
     };
   }
 

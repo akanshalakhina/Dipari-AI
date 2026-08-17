@@ -39,8 +39,10 @@ export class AuthController {
       const businessId = synced.user.businessId;
       const businessName = synced.user.businessName || null;
       let onboardingCompleted = false;
+      let profileCompleted = false;
       if (businessId) {
         onboardingCompleted = await this.authService.checkOnboardingCompleted(businessId);
+        profileCompleted = await this.authService.checkProfileCompleted(businessId);
       }
       
       return {
@@ -49,6 +51,7 @@ export class AuthController {
           ...synced.user,
           businessName,
           onboardingCompleted,
+          profileCompleted,
         }
       };
     } catch (e) {
@@ -86,8 +89,10 @@ export class AuthController {
     const businessId = user.businesses[0]?.businessId || null;
     const businessName = user.businesses[0]?.business?.name || null;
     let onboardingCompleted = false;
+    let profileCompleted = false;
     if (businessId) {
       onboardingCompleted = await this.authService.checkOnboardingCompleted(businessId);
+      profileCompleted = await this.authService.checkProfileCompleted(businessId);
     }
     return {
       id: user.id,
@@ -97,6 +102,7 @@ export class AuthController {
       businessId,
       businessName,
       onboardingCompleted,
+      profileCompleted,
       preferredLanguage: user.preferredLanguage || 'English',
     };
   }

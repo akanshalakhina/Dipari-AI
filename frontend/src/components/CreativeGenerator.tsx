@@ -8,7 +8,7 @@ interface CreativeGeneratorProps {
 }
 
 export default function CreativeGenerator({ addToast, onCreativeSaved, initialPrompt = '' }: CreativeGeneratorProps) {
-  const [imagePrompt, setImagePrompt] = useState(initialPrompt || 'Sustainable lightweight linen shirt flatlay, natural lighting');
+  const [imagePrompt, setImagePrompt] = useState(initialPrompt || 'Professional product image based on the business offering, clean commercial lighting');
   const [mediaType, setMediaType] = useState<'IMAGE' | 'VIDEO'>('IMAGE');
   const [mediaUrl, setMediaUrl] = useState('https://images.unsplash.com/photo-1523381210434-271e8be1f52b?auto=format&fit=crop&q=80&w=600');
   
@@ -26,15 +26,11 @@ export default function CreativeGenerator({ addToast, onCreativeSaved, initialPr
     setGenerating(true);
     addToast('Generating Asset', 'Sending prompt to AI image generation engine...', 'info');
     try {
-      await new Promise(r => setTimeout(r, 2000));
-      const mockImages = [
-        'https://images.unsplash.com/photo-1598033129183-c4f50c736f10?auto=format&fit=crop&q=80&w=600',
-        'https://images.unsplash.com/photo-1491553895911-0055eca6402d?auto=format&fit=crop&q=80&w=600',
-        'https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=600'
-      ];
-      const randomImg = mockImages[Math.floor(Math.random() * mockImages.length)];
-      setMediaUrl(randomImg);
-      addToast('Image Generated', 'High-end commercial photo added to canvas.', 'success');
+      const prompt = imagePrompt.trim();
+      if (!prompt) throw new Error('Please describe the product or service before generating an image.');
+      const generatedUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=768&height=768&nologo=true&seed=${encodeURIComponent(prompt)}`;
+      setMediaUrl(generatedUrl);
+      addToast('Image Generated', 'The image was generated from your prompt.', 'success');
     } catch (e: any) {
       addToast('Asset generation failed', e.message, 'alert');
     } finally {

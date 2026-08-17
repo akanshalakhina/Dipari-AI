@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { RolesGuard } from './roles.guard';
+import { ProfileCompletedGuard } from './profile-completed.guard';
 
 @Module({
   imports: [
@@ -12,8 +13,8 @@ import { RolesGuard } from './roles.guard';
       signOptions: { expiresIn: '7d' },
     }),
   ],
-  providers: [AuthService, JwtAuthGuard, RolesGuard],
+  providers: [AuthService, JwtAuthGuard, RolesGuard, ProfileCompletedGuard],
   controllers: [AuthController],
-  exports: [AuthService, JwtAuthGuard, RolesGuard, JwtModule],
+  exports: [AuthService, JwtAuthGuard, RolesGuard, ProfileCompletedGuard, JwtModule],
 })
 export class AuthModule {}

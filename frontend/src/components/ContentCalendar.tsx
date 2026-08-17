@@ -1,19 +1,22 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Calendar as CalendarIcon, 
-  Sparkles, 
-  Download, 
-  Edit, 
-  Copy, 
   Trash2, 
-  Check, 
   Plus, 
   Printer, 
   CornerDownLeft, 
   X,
   Search,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Send,
+  RefreshCw,
+  Image as ImageIcon,
+  Sparkles,
+  Copy,
+  Edit3,
+  CheckCircle,
+  Clock
 } from 'lucide-react';
 import { api } from '../services/api';
 
@@ -24,14 +27,12 @@ interface ContentCalendarProps {
 
 export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, onToast }) => {
   const defaultScheduleDate = new Date().toISOString().slice(0, 10);
-  // const [loading, setLoading] = useState(false);
   const [calendarEntries, setCalendarEntries] = useState<any[]>([]);
 
-  // Filter & Month Navigation State
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
-  const [postTypeFilter, setPostTypeFilter] = useState<string>('ALL');
   const [currentDate, setCurrentDate] = useState<Date>(new Date());
+  const [brokenImageIds, setBrokenImageIds] = useState<Set<string>>(new Set());
 
   // Google Sheets Selection & Editing State
   const [selectedCell, setSelectedCell] = useState<{ rowId: string; colName: string } | null>(null);
@@ -41,6 +42,11 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
   const [editingEntry, setEditingEntry] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const [isScheduleSettingsOpen, setIsScheduleSettingsOpen] = useState(false);
+  const [scheduleSettings, setScheduleSettings] = useState({
+    days: ['Monday', 'Wednesday', 'Friday'],
+    time: '20:00',
+  });
   const [previewEntry, setPreviewEntry] = useState<any | null>(null);
   const [previewDraft, setPreviewDraft] = useState({
     bio: '',
@@ -64,6 +70,13 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     scheduledTime: '10:00'
   });
 
+  // Post-now modal state
+  const [postModal, setPostModal] = useState<{ entry: any; platform: string } | null>(null);
+  const [isPosting, setIsPosting] = useState(false);
+
+  // Regeneration counts per entry (entryId -> count), seeded from entry.regenerateCount
+  const [regenerateCounts, setRegenerateCounts] = useState<Record<string, number>>({});
+
   const fetchCalendar = async () => {
     if (!businessId) return;
     
@@ -86,7 +99,7 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
           platform: sp.platform || 'both',
           postType: sp.postType || 'Instant Post',
           contentIdea: sp.headline || (sp.caption ? sp.caption.substring(0, 45) + '...' : 'Scheduled Post'),
-          contentDescription: sp.caption || '',
+          contentDescription: sp.contentDescription || `${sp.postType || 'Social post'} about ${sp.headline || 'the business offering'}.`,
           caption: sp.caption || '',
           hashtags: sp.hashtags || [],
           status: sp.status || 'SCHEDULED',
@@ -106,6 +119,21 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     fetchCalendar();
   }, [businessId]);
 
+  // Sync regenerateCounts from loaded entries
+  useEffect(() => {
+    if (calendarEntries.length > 0) {
+      setRegenerateCounts(prev => {
+        const updated = { ...prev };
+        for (const entry of calendarEntries) {
+          if (entry.id && !(entry.id in updated)) {
+            updated[entry.id] = entry.regenerateCount || 0;
+          }
+        }
+        return updated;
+      });
+    }
+  }, [calendarEntries]);
+
   // Date Formatting: DD/MM/YYYY
   const formatSpreadsheetDate = (dateInput: any) => {
     if (!dateInput) return '';
@@ -124,15 +152,20 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     return `${day}/${month}/${year}`;
   };
 
+  const formatCaptionWithHashtags = (entry: any) => {
+    const caption = (entry.caption || '').trim();
+    const hashtags = Array.isArray(entry.hashtags)
+      ? entry.hashtags.map((tag: string) => tag.startsWith('#') ? tag : `#${tag}`).join(' ')
+      : '';
+    return [caption, hashtags].filter(Boolean).join('\n\n');
+  };
+
   // Get field names of selected cell
   const getFieldFromCol = (colName: string) => {
     switch (colName) {
       case 'A': return 'scheduledTime';
-      case 'B': return 'postType';
-      case 'C': return 'contentIdea';
-      case 'D': return 'contentDescription';
-      case 'E': return 'caption';
-      case 'F': return 'status';
+      case 'B': return 'caption';
+      case 'C': return 'status';
       default: return '';
     }
   };
@@ -217,29 +250,40 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     }
   };
 
-  const handleMarkAsPosted = async (id: string) => {
-    
+  const handleApproveRow = async (entry: any) => {
     try {
-      await api.content.updateEntry(id, { status: 'POSTED' });
-      onToast('Status Updated', 'Marked as posted.', 'success');
+      await api.content.updateEntry(entry.id, { status: 'APPROVED' });
+      onToast('Approved', 'Content entry approved for scheduling.', 'success');
       await fetchCalendar();
     } catch (err: any) {
-      onToast('Error', err.message, 'alert');
-    } finally {
-      
+      onToast('Approve Failed', err.message || 'Could not approve entry', 'alert');
     }
   };
 
-  const handleSchedulePost = async (entry: any) => {
-    setPreviewEntry(entry);
-    setPreviewDraft({
-      bio: entry.profileBio || entry.contentDescription || '',
-      caption: entry.caption || '',
-      imageUrl: entry.imageUrl || 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800',
-      imageOverlayText: entry.imageOverlayText || entry.contentIdea || '',
-      platform: String(entry.platform || '').toLowerCase() === 'facebook' ? 'facebook' : 'instagram',
-    });
+  const handleDuplicateRow = async (entry: any) => {
+    try {
+      const payload = {
+        businessId,
+        dayName: entry.dayName || 'Monday',
+        platform: entry.platform || 'both',
+        scheduledTime: new Date().toISOString(),
+        contentIdea: `${entry.contentIdea || 'Copy'} (Copy)`,
+        contentDescription: entry.contentDescription || '',
+        caption: entry.caption || '',
+        hashtags: entry.hashtags || [],
+        postType: entry.postType || 'Graphic',
+        status: 'PENDING',
+        imageUrl: entry.imageUrl || '',
+      };
+      await api.content.createEntry(payload);
+      onToast('Duplicated', 'Copied content row into Content Calendar.', 'success');
+      await fetchCalendar();
+    } catch (err: any) {
+      onToast('Duplicate Failed', err.message || 'Could not duplicate row', 'alert');
+    }
   };
+
+
 
   const handlePreviewImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -307,51 +351,92 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
   };
 
   const handleRegenerateRow = async (id: string) => {
-    
-    onToast('Regenerating...', 'AI writer generating creative options...', 'info');
+    const regenCount = regenerateCounts[id] || 0;
+    if (regenCount >= 2) {
+      onToast('Limit Reached', 'You can only regenerate a post 2 times.', 'alert');
+      return;
+    }
+    onToast('Regenerating...', 'AI is generating new image and caption...', 'info');
     try {
       const res = await api.content.regenerateEntry(id);
       if (res.success) {
-        onToast('Regeneration Complete', 'New content written and updated.', 'success');
+        const newCount = regenCount + 1;
+        setRegenerateCounts(prev => ({ ...prev, [id]: newCount }));
+        onToast('Regeneration Complete', `New content and image generated. (${newCount}/2 uses)`, 'success');
         await fetchCalendar();
       } else {
-        onToast('Regeneration Failed', res.message, 'alert');
+        onToast('Regeneration Failed', res.message || 'Could not regenerate.', 'alert');
       }
     } catch (err: any) {
-      onToast('Error', err.message, 'alert');
-    } finally {
-      
+      const errMsg = err.message || 'Error';
+      if (errMsg.toLowerCase().includes('limit')) {
+        onToast('Limit Reached', 'You can only regenerate each post 2 times.', 'alert');
+        setRegenerateCounts(prev => ({ ...prev, [id]: 2 }));
+      } else {
+        onToast('Error', errMsg, 'alert');
+      }
     }
   };
 
-  const handleDuplicateRow = async (entry: any) => {
-    
+  const handlePostNow = async () => {
+    if (!postModal) return;
+    setIsPosting(true);
     try {
-      const entryDate = entry.scheduledTime ? new Date(entry.scheduledTime) : new Date();
-      entryDate.setDate(entryDate.getDate() + 1);
+      const res = await api.content.postNow(postModal.entry.id, postModal.platform);
+      if (res.success) {
+        onToast('Posted! 🎉', `Successfully posted to ${postModal.platform === 'both' ? 'Facebook & Instagram' : postModal.platform}.`, 'success');
+        setPostModal(null);
+        await fetchCalendar();
+      } else {
+        onToast('Post Failed', 'Could not publish the post. Check Meta connection.', 'alert');
+      }
+    } catch (err: any) {
+      onToast('Post Failed', err.message || 'Error posting to Meta.', 'alert');
+    } finally {
+      setIsPosting(false);
+    }
+  };
 
-      const duplicatedData = {
-        businessId,
-        dayName: entry.dayName || 'Monday',
-        platform: entry.platform || 'Instagram',
-        scheduledTime: entryDate.toISOString(),
-        contentIdea: `${entry.contentIdea || ''} (Copy)`,
-        contentDescription: entry.contentDescription || '',
-        caption: entry.caption || '',
-        hashtags: entry.hashtags || [],
-        postType: entry.postType || 'Graphic',
-        status: 'PENDING',
-      };
+  const handleApplyScheduleSettings = async () => {
+    if (scheduleSettings.days.length === 0) {
+      onToast('Choose posting days', 'Select at least one day for your content schedule.', 'alert');
+      return;
+    }
 
-      await api.content.createEntry(duplicatedData);
-      onToast('Row Cloned', 'Calendar entry duplicated successfully.', 'success');
+    const [hours, minutes] = scheduleSettings.time.split(':').map(Number);
+    const dayIndexes: Record<string, number> = {
+      Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3,
+      Thursday: 4, Friday: 5, Saturday: 6,
+    };
+    const startOfWeek = new Date();
+    startOfWeek.setDate(startOfWeek.getDate() - ((startOfWeek.getDay() + 6) % 7));
+    startOfWeek.setHours(hours, minutes, 0, 0);
+    if (startOfWeek.getTime() < Date.now()) startOfWeek.setDate(startOfWeek.getDate() + 7);
+
+    const editableEntries = calendarEntries
+      .filter(entry => !['POSTED', 'PUBLISHED'].includes((entry.status || '').toUpperCase()))
+      .sort((a, b) => Number(new Date(a.scheduledTime || 0)) - Number(new Date(b.scheduledTime || 0)));
+
+    try {
+      await Promise.all(editableEntries.map((entry, index) => {
+        const dayName = scheduleSettings.days[index % scheduleSettings.days.length];
+        const scheduledTime = new Date(startOfWeek);
+        scheduledTime.setDate(startOfWeek.getDate() + (dayIndexes[dayName] - 1 + 7) % 7 + Math.floor(index / scheduleSettings.days.length) * 7);
+        return api.content.updateEntry(entry.id, {
+          dayName,
+          scheduledTime: scheduledTime.toISOString(),
+          bestPostingTime: new Date(2000, 0, 1, hours, minutes).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        });
+      }));
+      setIsScheduleSettingsOpen(false);
+      onToast('Schedule Updated', `Posts will be prepared for ${scheduleSettings.days.join(', ')} at ${scheduleSettings.time}.`, 'success');
       await fetchCalendar();
     } catch (err: any) {
-      onToast('Failed to Duplicate', err.message, 'alert');
-    } finally {
-      
+      onToast('Schedule Failed', err.message || 'Could not update the schedule.', 'alert');
     }
   };
+
+
 
   const handleUpdateEntrySubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -435,13 +520,10 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
 
   // Exporters
   const handleExportCSV = () => {
-    const headers = ['Date', 'Post Type', 'Content Idea', 'Content Description', 'Caption with hashtag', 'Status'];
+    const headers = ['Date', 'Caption with hashtags', 'Status'];
     const rows = filteredEntries.map(entry => [
       entry.scheduledTime ? formatSpreadsheetDate(entry.scheduledTime) : '',
-      entry.postType || 'Graphic',
-      entry.contentIdea || '',
-      entry.contentDescription || '',
-      entry.caption || '',
+      formatCaptionWithHashtags(entry),
       (entry.status || 'PENDING').toLowerCase()
     ]);
     const csvContent = "data:text/csv;charset=utf-8,\uFEFF" 
@@ -456,13 +538,10 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
   };
 
   const handleExportExcel = () => {
-    const headers = ['Date', 'Post Type', 'Content Idea', 'Content Description', 'Caption with hashtag', 'Status'];
+    const headers = ['Date', 'Caption with hashtags', 'Status'];
     const rows = filteredEntries.map(entry => [
       entry.scheduledTime ? formatSpreadsheetDate(entry.scheduledTime) : '',
-      entry.postType || 'Graphic',
-      entry.contentIdea || '',
-      entry.contentDescription || '',
-      entry.caption || '',
+      formatCaptionWithHashtags(entry),
       (entry.status || 'PENDING').toLowerCase()
     ]);
     const tabContent = [headers.join('\t'), ...rows.map(r => r.join('\t'))].join('\n');
@@ -475,6 +554,11 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     link.click();
     document.body.removeChild(link);
   };
+
+  // Kept for backwards compatibility with existing bookmarks; the toolbar now
+  // exposes schedule settings instead of spreadsheet exports.
+  void handleExportCSV;
+  void handleExportExcel;
 
   const handleExportPDF = () => {
     window.print();
@@ -490,8 +574,6 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     const matchesSearch = !searchTerm || idea.includes(query) || desc.includes(query) || cap.includes(query) || type.includes(query);
 
     const matchesStatus = statusFilter === 'ALL' || (entry.status || 'PENDING').toUpperCase() === statusFilter.toUpperCase();
-    const matchesPostType = postTypeFilter === 'ALL' || (entry.postType || '').toLowerCase() === postTypeFilter.toLowerCase();
-
     let entryDate: Date | null = null;
     if (entry.scheduledTime) {
       if (entry.scheduledTime.toDate && typeof entry.scheduledTime.toDate === 'function') {
@@ -506,7 +588,7 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
       ? entryDate.getMonth() === currentDate.getMonth() && entryDate.getFullYear() === currentDate.getFullYear()
       : false;
 
-    return matchesSearch && matchesStatus && matchesPostType && matchesMonth;
+    return matchesSearch && matchesStatus && matchesMonth;
   });
 
   const monthYearString = currentDate.toLocaleString('default', { month: 'long', year: 'numeric' });
@@ -538,7 +620,7 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
     fontSize: '13px',
     color: '#1e293b',
     tableLayout: 'fixed',
-    minWidth: '1200px'
+    minWidth: '900px'
   };
 
   const thStyle: React.CSSProperties = {
@@ -605,16 +687,10 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
             <Plus className="w-4 h-4" /> Add Row
           </button>
           <button
-            onClick={handleExportCSV}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', borderRadius: '10px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
+            onClick={() => setIsScheduleSettingsOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', background: '#eef2ff', border: '1px solid #a5b4fc', color: '#3730a3', borderRadius: '10px', fontWeight: 700, fontSize: '0.8rem', cursor: 'pointer' }}
           >
-            <Download className="w-3.5 h-3.5" /> CSV
-          </button>
-          <button
-            onClick={handleExportExcel}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 14px', background: '#ffffff', border: '1px solid #cbd5e1', color: '#334155', borderRadius: '10px', fontWeight: 600, fontSize: '0.8rem', cursor: 'pointer' }}
-          >
-            <Download className="w-3.5 h-3.5" /> Excel
+            <Clock className="w-3.5 h-3.5" /> Schedule
           </button>
           <button
             onClick={handleExportPDF}
@@ -653,24 +729,6 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
               <option value="PENDING">Pending</option>
               <option value="SCHEDULED">Scheduled</option>
               <option value="POSTED">Posted</option>
-            </select>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: '#f8fafc', border: '1px solid #e2e8f0', padding: '6px 12px', borderRadius: '10px' }}>
-            <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold' }}>FORMAT:</span>
-            <select
-              style={{ background: 'transparent', border: 'none', outline: 'none', fontSize: '0.8rem', color: '#334155', fontWeight: 600, cursor: 'pointer' }}
-              value={postTypeFilter}
-              onChange={(e) => setPostTypeFilter(e.target.value)}
-            >
-              <option value="ALL">All</option>
-              <option value="Graphic">Graphic</option>
-              <option value="Reel">Reel</option>
-              <option value="Carousel">Carousel</option>
-              <option value="Story">Story</option>
-              <option value="Video">Video</option>
-              <option value="Blog">Blog</option>
-              <option value="Poll">Poll</option>
             </select>
           </div>
 
@@ -734,36 +792,28 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
         <div style={scrollContainerStyle}>
           <table style={tableStyle}>
             
-            {/* Columns (A - I) */}
+            {/* Columns (Row# + image + date + caption + status + actions) */}
             <thead>
               <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
                 <th style={{ ...thStyle, width: '45px', background: '#e2e8f0', borderRight: '1px solid #cbd5e1' }}></th>
-                <th style={{ ...thStyle, width: '130px' }}>A</th>
-                <th style={{ ...thStyle, width: '110px' }}>B</th>
-                <th style={{ ...thStyle, width: '200px' }}>C</th>
-                <th style={{ ...thStyle, width: '220px' }}>D</th>
-                <th style={{ ...thStyle, width: '380px' }}>E</th>
-                <th style={{ ...thStyle, width: '100px' }}>F</th>
-                <th style={{ ...thStyle, width: '180px' }} className="no-print">G</th>
-                <th style={{ ...thStyle, width: '80px' }}>H</th>
-                <th style={{ ...thStyle, width: '80px', borderRight: 'none' }}>I</th>
+                <th style={{ ...thStyle, width: '90px' }}>IMG</th>
+                <th style={{ ...thStyle, width: '120px' }}>A</th>
+                <th style={{ ...thStyle, width: '430px' }}>B</th>
+                <th style={{ ...thStyle, width: '100px' }}>C</th>
+                <th style={{ ...thStyle, width: '200px', borderRight: 'none' }} className="no-print">D</th>
               </tr>
             </thead>
 
             <tbody>
               
-              {/* Row 1: Header values (Date, Post Type, Content Idea, Content Description, Caption with hashtag, Status, Actions) */}
+              {/* Row 1: Header values */}
               <tr style={{ background: '#f1f5f9', borderBottom: '1px solid #cbd5e1' }}>
                 <td style={rowHeaderStyle}>1</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'center' }}>Image</td>
                 <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Date</td>
-                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Post Type</td>
-                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Content Idea</td>
-                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Content Description</td>
-                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Caption with hashtag</td>
+                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Caption with hashtags</td>
                 <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'left' }}>Status</td>
-                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'center' }} className="no-print">Actions</td>
-                <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1' }}></td>
-                <td style={{ borderBottom: '1px solid #cbd5e1' }}></td>
+                <td style={{ borderBottom: '1px solid #cbd5e1', padding: '10px 12px', fontWeight: 'bold', textAlign: 'center' }} className="no-print">Actions</td>
               </tr>
 
               {/* Real Data Rows */}
@@ -771,12 +821,30 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
                 const rowNum = idx + 2;
                 const formattedDate = entry.scheduledTime ? formatSpreadsheetDate(entry.scheduledTime) : '';
                 const lowercaseStatus = (entry.status || 'pending').toLowerCase();
+                const regenCount = regenerateCounts[entry.id] ?? (entry.regenerateCount || 0);
+                const regenDisabled = regenCount >= 2;
 
                 return (
                   <tr key={entry.id} style={{ borderBottom: '1px solid #cbd5e1' }}>
                     
                     {/* Row Index */}
                     <td style={rowHeaderStyle}>{rowNum}</td>
+
+                    {/* Image Column (AI-generated) */}
+                    <td style={{ borderRight: '1px solid #e2e8f0', borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'center', verticalAlign: 'middle', background: '#fafafa' }}>
+                      {entry.imageUrl && !brokenImageIds.has(entry.id) ? (
+                        <img
+                          src={entry.imageUrl}
+                          alt="Post visual"
+                          style={{ width: '70px', height: '70px', objectFit: 'cover', borderRadius: '6px', display: 'block', margin: '0 auto', border: '1px solid #e2e8f0' }}
+                          onError={() => setBrokenImageIds(previous => new Set(previous).add(entry.id))}
+                        />
+                      ) : (
+                        <div style={{ width: '70px', height: '70px', background: '#e0e7ff', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto' }}>
+                          <ImageIcon size={22} color="#6366f1" />
+                        </div>
+                      )}
+                    </td>
 
                     {/* Date (Column A) - Aligned bottom right */}
                     <td 
@@ -786,109 +854,136 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
                       {formattedDate}
                     </td>
 
-                    {/* Post Type (Column B) - Aligned bottom left */}
+                    {/* Caption with hashtags (Column B) */}
                     <td 
                       onClick={() => handleCellClick(entry, 'B')}
-                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'B', 'left', 'bottom')}
+                      style={{
+                        ...cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'B', 'left', 'top'),
+                        whiteSpace: 'pre-wrap'
+                      }}
                     >
-                      {entry.postType || 'Graphic'}
+                      {formatCaptionWithHashtags(entry)}
                     </td>
 
-                    {/* Content Idea (Column C) - Aligned bottom left */}
+                    {/* Status (Column C) */}
                     <td 
                       onClick={() => handleCellClick(entry, 'C')}
                       style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'C', 'left', 'bottom')}
                     >
-                      {entry.contentIdea || ''}
+                      <span style={{
+                        display: 'inline-block',
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                        background: lowercaseStatus === 'posted' ? '#dcfce7' : lowercaseStatus === 'scheduled' ? '#dbeafe' : '#f1f5f9',
+                        color: lowercaseStatus === 'posted' ? '#16a34a' : lowercaseStatus === 'scheduled' ? '#2563eb' : '#64748b'
+                      }}>
+                        {lowercaseStatus}
+                      </span>
                     </td>
 
-                    {/* Content Description (Column D) - Aligned bottom left */}
+                    {/* Actions Column (Column G) — Status-aware actions */}
                     <td 
-                      onClick={() => handleCellClick(entry, 'D')}
-                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'D', 'left', 'bottom')}
-                    >
-                      {entry.contentDescription || ''}
-                    </td>
-
-                    {/* Caption with hashtag (Column E) - Aligned top left, pre-wrap */}
-                    <td 
-                      onClick={() => handleCellClick(entry, 'E')}
-                      style={{
-                        ...cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'E', 'left', 'top'),
-                        whiteSpace: 'pre-wrap'
-                      }}
-                    >
-                      {entry.caption || ''}
-                    </td>
-
-                    {/* Status (Column F) - Aligned bottom left */}
-                    <td 
-                      onClick={() => handleCellClick(entry, 'F')}
-                      style={cellStyle(selectedCell?.rowId === entry.id && selectedCell?.colName === 'F', 'left', 'bottom')}
-                    >
-                      {lowercaseStatus}
-                    </td>
-
-                    {/* Actions Column (Column G) */}
-                    <td 
-                      style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '6px', textAlign: 'center', verticalAlign: 'middle' }}
+                      style={{ borderBottom: '1px solid #cbd5e1', padding: '6px 8px', textAlign: 'center', verticalAlign: 'middle' }}
                       className="no-print"
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                        <button
-                          onClick={() => {
-                            setEditingEntry({ ...entry, hashtags: (entry.hashtags || []).join(', ') });
-                            setIsEditModalOpen(true);
-                          }}
-                          title="Modify content fields"
-                          style={{ padding: '4px', border: '1px solid #cbd5e1', background: '#ffffff', borderRadius: '4px', cursor: 'pointer', color: '#475569' }}
-                        >
-                          <Edit className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDuplicateRow(entry)}
-                          title="Duplicate row"
-                          style={{ padding: '4px', border: '1px solid #cbd5e1', background: '#ffffff', borderRadius: '4px', cursor: 'pointer', color: '#475569' }}
-                        >
-                          <Copy className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleRegenerateRow(entry.id)}
-                          title="AI rewrite variant"
-                          style={{ padding: '4px', border: '1px solid #e0e7ff', background: '#f5f3ff', borderRadius: '4px', cursor: 'pointer', color: '#4f46e5' }}
-                        >
-                          <Sparkles className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteRow(entry.id)}
-                          title="Delete entry"
-                          style={{ padding: '4px', border: '1px solid #fee2e2', background: '#fef2f2', borderRadius: '4px', cursor: 'pointer', color: '#ef4444' }}
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px' }}>
+                        {/* 1. Generate AI Image / Regenerate */}
+                        {!entry.imageUrl && (
+                          <button
+                            onClick={() => handleRegenerateRow(entry.id)}
+                            title="Generate AI Image"
+                            style={{ display: 'flex', alignItems: 'center', gap: '3px', padding: '3px 8px', border: '1px solid #c084fc', background: '#faf5ff', color: '#7e22ce', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 700, width: '100%', justifyContent: 'center' }}
+                          >
+                            <Sparkles size={10} /> AI Image
+                          </button>
+                        )}
+
+                        {/* 2. Approve (if PENDING) */}
+                        {entry.status === 'PENDING' && (
+                          <button
+                            onClick={() => handleApproveRow(entry)}
+                            title="Approve entry"
+                            style={{ display: 'flex', alignItems: 'center', gap: '3px', padding: '3px 8px', border: '1px solid #86efac', background: '#f0fdf4', color: '#15803d', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 700, width: '100%', justifyContent: 'center' }}
+                          >
+                            <CheckCircle size={10} /> Approve
+                          </button>
+                        )}
+
+                        {/* 3. Schedule */}
                         {entry.status !== 'POSTED' && (
                           <button
-                            onClick={() => handleMarkAsPosted(entry.id)}
-                            title="Mark as Posted"
-                            style={{ padding: '4px', border: '1px solid #d1fae5', background: '#ecfdf5', borderRadius: '4px', cursor: 'pointer', color: '#059669' }}
+                            onClick={() => {
+                              setPreviewEntry(entry);
+                              setPreviewDraft({
+                                bio: entry.profileBio || entry.contentDescription || '',
+                                caption: entry.caption || '',
+                                imageUrl: entry.imageUrl || '',
+                                imageOverlayText: entry.imageOverlayText || '',
+                                platform: entry.platform || 'both',
+                              });
+                            }}
+                            title="Schedule Post"
+                            style={{ display: 'flex', alignItems: 'center', gap: '3px', padding: '3px 8px', border: '1px solid #93c5fd', background: '#eff6ff', color: '#1d4ed8', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 700, width: '100%', justifyContent: 'center' }}
                           >
-                            <Check className="w-3.5 h-3.5" />
+                            <Clock size={10} /> Schedule
                           </button>
                         )}
-                        {entry.status !== 'SCHEDULED' && (
+
+                        {/* 4. Instant Post (Post Now) */}
+                        {entry.status !== 'POSTED' && (
                           <button
-                            onClick={() => handleSchedulePost(entry)}
-                            style={{ padding: '4px 8px', border: 'none', background: '#4f46e5', color: '#ffffff', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 'bold' }}
+                            onClick={() => setPostModal({ entry, platform: 'both' })}
+                            title="Instant Post to Meta"
+                            style={{ display: 'flex', alignItems: 'center', gap: '3px', padding: '3px 8px', border: 'none', background: '#4f46e5', color: '#ffffff', borderRadius: '4px', cursor: 'pointer', fontSize: '10px', fontWeight: 700, width: '100%', justifyContent: 'center' }}
                           >
-                            Schedule
+                            <Send size={10} /> Instant Post
                           </button>
                         )}
+
+                        {entry.status === 'POSTED' && (
+                          <span style={{ fontSize: '10px', color: '#16a34a', fontWeight: 700, padding: '2px 0' }}>✓ Posted</span>
+                        )}
+
+                        {/* 5. Action Bar: Edit, Duplicate, Regen, Delete */}
+                        <div style={{ display: 'flex', gap: '2px', width: '100%', marginTop: '2px' }}>
+                          <button
+                            onClick={() => {
+                              setEditingEntry(entry);
+                              setIsEditModalOpen(true);
+                            }}
+                            title="Edit row"
+                            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}
+                          >
+                            <Edit3 size={10} />
+                          </button>
+                          <button
+                            onClick={() => handleDuplicateRow(entry)}
+                            title="Duplicate entry"
+                            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3px', border: '1px solid #cbd5e1', background: '#ffffff', color: '#334155', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}
+                          >
+                            <Copy size={10} />
+                          </button>
+                          <button
+                            onClick={() => !regenDisabled && handleRegenerateRow(entry.id)}
+                            title={regenDisabled ? 'Limit reached (2/2)' : `Regenerate (${regenCount}/2)`}
+                            disabled={regenDisabled}
+                            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3px', border: '1px solid #cbd5e1', background: regenDisabled ? '#f1f5f9' : '#f5f3ff', color: regenDisabled ? '#94a3b8' : '#6366f1', borderRadius: '4px', cursor: regenDisabled ? 'not-allowed' : 'pointer', fontSize: '10px' }}
+                          >
+                            <RefreshCw size={10} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteRow(entry.id)}
+                            title="Delete entry"
+                            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '3px', border: '1px solid #fecaca', background: '#fef2f2', color: '#ef4444', borderRadius: '4px', cursor: 'pointer', fontSize: '10px' }}
+                          >
+                            <Trash2 size={10} />
+                          </button>
+                        </div>
+
                       </div>
                     </td>
-
-                    {/* Padding Empty Columns */}
-                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1' }}></td>
-                    <td style={{ borderBottom: '1px solid #cbd5e1' }}></td>
 
                   </tr>
                 );
@@ -904,11 +999,7 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
                     <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
                     <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
                     <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
-                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
-                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
-                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }} className="no-print"></td>
-                    <td style={{ borderRight: '1px solid #cbd5e1', borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
-                    <td style={{ borderBottom: '1px solid #cbd5e1', padding: '16px' }}></td>
+                    <td style={{ borderBottom: '1px solid #cbd5e1', padding: '16px' }} className="no-print"></td>
                   </tr>
                 );
               })}
@@ -918,6 +1009,96 @@ export const ContentCalendar: React.FC<ContentCalendarProps> = ({ businessId, on
           </table>
         </div>
       </div>
+
+      {isScheduleSettingsOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 140, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#ffffff', borderRadius: '16px', width: '100%', maxWidth: '440px', padding: '24px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / .3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1.05rem' }}>Posting schedule</h3>
+              <button onClick={() => setIsScheduleSettingsOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: '#64748b' }}><X size={18} /></button>
+            </div>
+            <p style={{ margin: '0 0 18px', color: '#64748b', fontSize: '.82rem', lineHeight: 1.45 }}>Choose when upcoming calendar posts should be scheduled. Existing published posts are not changed.</p>
+            <div style={{ marginBottom: '18px' }}>
+              <div style={{ color: '#475569', fontWeight: 700, fontSize: '.78rem', marginBottom: '8px' }}>POSTING DAYS</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '7px' }}>
+                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map(day => {
+                  const selected = scheduleSettings.days.includes(day);
+                  return <button key={day} onClick={() => setScheduleSettings(prev => ({ ...prev, days: selected ? prev.days.filter(value => value !== day) : [...prev.days, day] }))} style={{ padding: '7px 10px', borderRadius: '8px', border: selected ? '1px solid #4f46e5' : '1px solid #cbd5e1', background: selected ? '#e0e7ff' : '#fff', color: selected ? '#3730a3' : '#475569', cursor: 'pointer', fontSize: '.74rem', fontWeight: 700 }}>{day.slice(0, 3)}</button>;
+                })}
+              </div>
+            </div>
+            <label style={{ display: 'block', color: '#475569', fontWeight: 700, fontSize: '.78rem', marginBottom: '20px' }}>POSTING TIME
+              <input type="time" value={scheduleSettings.time} onChange={event => setScheduleSettings(prev => ({ ...prev, time: event.target.value }))} style={{ display: 'block', marginTop: '8px', width: '100%', boxSizing: 'border-box', padding: '10px', border: '1px solid #cbd5e1', borderRadius: '8px' }} />
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button onClick={() => setIsScheduleSettingsOpen(false)} style={{ padding: '9px 16px', border: 'none', borderRadius: '8px', background: '#f1f5f9', color: '#475569', cursor: 'pointer', fontWeight: 700 }}>Cancel</button>
+              <button onClick={handleApplyScheduleSettings} style={{ padding: '9px 16px', border: 'none', borderRadius: '8px', background: '#4f46e5', color: '#fff', cursor: 'pointer', fontWeight: 700 }}>Save schedule</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* POST CONFIRMATION MODAL */}
+      {postModal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 150, background: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
+          <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '16px', maxWidth: '400px', width: '100%', padding: '28px', boxShadow: '0 25px 50px -12px rgb(0 0 0 / 0.3)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '20px' }}>
+              <div>
+                <h3 style={{ fontSize: '1rem', fontWeight: 800, color: '#0f172a', margin: '0 0 4px 0' }}>🚀 Post to Social Media</h3>
+                <p style={{ fontSize: '0.78rem', color: '#64748b', margin: 0 }}>Publish this post immediately via Meta.</p>
+              </div>
+              <button onClick={() => setPostModal(null)} style={{ border: 'none', background: 'transparent', fontSize: '1.2rem', cursor: 'pointer', color: '#94a3b8' }}>✕</button>
+            </div>
+
+            {/* Post preview */}
+            {postModal.entry.imageUrl && (
+              <div style={{ marginBottom: '16px', borderRadius: '10px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                <img src={postModal.entry.imageUrl} alt="Post preview" style={{ width: '100%', height: '140px', objectFit: 'cover', display: 'block' }} />
+              </div>
+            )}
+            {postModal.entry.caption && (
+              <p style={{ fontSize: '0.78rem', color: '#334155', background: '#f8fafc', padding: '10px 12px', borderRadius: '8px', marginBottom: '16px', lineHeight: 1.5 }}>
+                {postModal.entry.caption.substring(0, 120)}{postModal.entry.caption.length > 120 ? '…' : ''}
+              </p>
+            )}
+
+            {/* Platform selection */}
+            <div style={{ marginBottom: '20px' }}>
+              <p style={{ fontSize: '0.75rem', fontWeight: 700, color: '#475569', marginBottom: '8px' }}>Select Platform:</p>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                {(['both', 'facebook', 'instagram'] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setPostModal(prev => prev ? { ...prev, platform: p } : null)}
+                    style={{
+                      flex: 1, padding: '8px 4px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer',
+                      border: postModal.platform === p ? '2px solid #4f46e5' : '1px solid #cbd5e1',
+                      background: postModal.platform === p ? '#e0e7ff' : '#f8fafc',
+                      color: postModal.platform === p ? '#3730a3' : '#475569'
+                    }}
+                  >
+                    {p === 'both' ? 'FB + IG' : p === 'facebook' ? 'Facebook' : 'Instagram'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setPostModal(null)} style={{ padding: '9px 18px', background: '#f1f5f9', border: 'none', borderRadius: '8px', color: '#475569', cursor: 'pointer', fontWeight: 600, fontSize: '0.82rem' }}>
+                Cancel
+              </button>
+              <button
+                onClick={handlePostNow}
+                disabled={isPosting}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '9px 20px', background: isPosting ? '#a5b4fc' : '#4f46e5', border: 'none', borderRadius: '8px', color: '#ffffff', cursor: isPosting ? 'not-allowed' : 'pointer', fontWeight: 700, fontSize: '0.82rem' }}
+              >
+                <Send size={14} />
+                {isPosting ? 'Posting…' : 'Publish Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* EDIT MODAL */}
       {isEditModalOpen && editingEntry && (
