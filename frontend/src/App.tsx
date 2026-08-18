@@ -932,7 +932,7 @@ export default function App() {
                     <span style={{ background: 'var(--color-primary)', fontSize: '0.7rem', padding: '3px 8px', borderRadius: 99, color: 'white', fontWeight: 'bold' }}>POPULAR</span>
                   </div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 700, marginTop: 4 }}>Advance</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, margin: '16px 0', color: 'var(--color-primary-light)' }}>₹5,900</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, margin: '16px 0', color: 'var(--color-primary-light)' }}>₹5,000</div>
                 </div>
                 <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, fontSize: '0.85rem', color: 'var(--color-text-muted)', flex: 1, padding: 0 }}>
                   <li>✓ 3 post (2 standard, 1 carrousal) / week</li>
@@ -940,22 +940,8 @@ export default function App() {
                   <li>✓ 15 days Ad campaign</li>
                   <li>✓ 24X7 support</li>
                   <li>✓ Visible growth in sales in 1 week</li>
-                  <li style={{ borderTop: '1px dashed var(--color-border)', paddingTop: 10, marginTop: 4, fontSize: '0.75rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span>Ad Budget:</span>
-                      <strong>₹3,540</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span>API Cost:</span>
-                      <strong>₹613.6</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: 2, marginTop: 2 }}>
-                      <span>Total cost:</span>
-                      <strong style={{ color: 'var(--color-primary)' }}>₹4,153.6</strong>
-                    </div>
-                  </li>
                 </ul>
-                <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Choose Advance</button>
+                <button className="btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Select Plan</button>
               </div>
 
               {/* Tile 3: Premium */}
@@ -963,7 +949,7 @@ export default function App() {
                 <div>
                   <div style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--color-primary)', textTransform: 'uppercase', marginBottom: 4 }}>Enterprise Scale</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>Premium</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, margin: '16px 0' }}>₹11,800</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, margin: '16px 0' }}>₹10,000</div>
                 </div>
                 <ul style={{ listStyle: 'none', display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20, fontSize: '0.85rem', color: 'var(--color-text-muted)', flex: 1, padding: 0 }}>
                   <li>✓ 5 post (2 standard, 1 carrousal) / week</li>
@@ -971,20 +957,6 @@ export default function App() {
                   <li>✓ 30 days Ad campaign</li>
                   <li>✓ 24X7 support</li>
                   <li>✓ Visible growth in sales in 1 week</li>
-                  <li style={{ borderTop: '1px dashed var(--color-border)', paddingTop: 10, marginTop: 4, fontSize: '0.75rem' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span>Ad Budget:</span>
-                      <strong>₹7,080</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
-                      <span>API Cost:</span>
-                      <strong>₹1,227.2</strong>
-                    </div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid var(--color-border)', paddingTop: 2, marginTop: 2 }}>
-                      <span>Total cost:</span>
-                      <strong style={{ color: 'var(--color-primary)' }}>₹8,307.2</strong>
-                    </div>
-                  </li>
                 </ul>
                 <button className="btn-primary" style={{ width: '100%', justifyContent: 'center', background: 'var(--color-secondary)' }} onClick={() => { setAuthView('register'); setCurrentPage('auth'); }}>Choose Premium</button>
               </div>
