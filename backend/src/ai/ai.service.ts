@@ -87,16 +87,21 @@ export class AiService {
   private readonly groqModel: string;
   private readonly groqBaseUrl = 'https://api.groq.com/openai/v1/chat/completions';
 
+  private readonly hfApiKey: string;
+  private readonly hfImageModel = 'black-forest-labs/FLUX.1-schnell';
+  private readonly hfBaseUrl = 'https://api-inference.huggingface.co/models';
+
   constructor() {
     this.apiKey = process.env.OPENROUTER_API_KEY || '';
     this.defaultModel = process.env.OPENROUTER_MODEL || 'google/gemma-4-31b-it:free';
     this.groqApiKey = process.env.GROQ_API_KEY || '';
     this.groqModel = process.env.GROQ_MODEL || 'llama-3.3-70b-specdec';
+    this.hfApiKey = process.env.HF_API_KEY || '';
 
     if (!this.apiKey && !this.groqApiKey) {
       this.logger.warn('Neither OPENROUTER_API_KEY nor GROQ_API_KEY is set. AI features will use fallback responses.');
     } else {
-      this.logger.log(`AIService initialized. Default model: ${this.defaultModel} | Groq fallback: ${this.groqModel}`);
+      this.logger.log(`AIService initialized. Default model: ${this.defaultModel} | Groq fallback: ${this.groqModel} | HF image: ${this.hfImageModel}`);
     }
   }
 
@@ -589,8 +594,10 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
   }
 
   /**
-   * AI Image Generation via Flux / Pollinations high-resolution model.
-   * Generates tailored advertising visual background assets based on complete Business Context.
+   * AI Image Generation — 3-tier fallback chain:
+   *  1. Hugging Face FLUX.1-schnell (free, high quality, returns real image bytes)
+   *  2. Pollinations AI flux model (free, no key, URL-based)
+   *  3. Pollinations AI turbo model (free, no key, fastest fallback)
    */
   async generateImage(
     prompt: string,
@@ -609,18 +616,77 @@ ${promptDetails?.topic ? `Specific Post Topic: ${promptDetails.topic}` : ''}`;
       height = 1024;
     }
 
+    // ── Tier 1: Hugging Face FLUX.1-schnell ─────────────────────────────────
+    if (this.hfApiKey) {
+      try {
+        this.logger.log(`[AIService] Attempting HF FLUX.1-schnell image generation...`);
+        const hfResponse = await axios.post(
+          `${this.hfBaseUrl}/${this.hfImageModel}`,
+          {
+            inputs: cleanPrompt,
+            parameters: {
+              width,
+              height,
+              num_inference_steps: 4,
+              guidance_scale: 0.0,
+            },
+          },
+          {
+            headers: {
+              Authorization: `Bearer ${this.hfApiKey}`,
+              'Content-Type': 'application/json',
+              Accept: 'image/png',
+            },
+            responseType: 'arraybuffer',
+            timeout: 60_000,
+          },
+        );
+
+        if (hfResponse.status === 200 && hfResponse.data) {
+          const base64 = Buffer.from(hfResponse.data).toString('base64');
+          const imageUrl = `data:image/png;base64,${base64}`;
+          const durationMs = Date.now() - startedAt;
+          this.logger.log(`[AIService] HF FLUX.1-schnell succeeded in ${durationMs}ms`);
+          return { success: true, imageUrl, model: 'hf-flux-schnell' };
+        }
+      } catch (hfErr: any) {
+        const status = hfErr?.response?.status;
+        const msg = hfErr?.response?.data ? Buffer.from(hfErr.response.data).toString('utf8') : hfErr.message;
+        this.logger.warn(`[AIService] HF image generation failed (status=${status}): ${msg?.substring(0, 120)}. Falling back to Pollinations...`);
+      }
+    } else {
+      this.logger.warn('[AIService] HF_API_KEY not set — skipping HF image generation. Add HF_API_KEY to .env for better image quality.');
+    }
+
+    // ── Tier 2: Pollinations AI — flux model ────────────────────────────────
     const encodedPrompt = encodeURIComponent(cleanPrompt);
     const timestamp = Date.now();
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&model=flux&seed=${timestamp}`;
+    const pollinationsFluxUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&model=flux&seed=${timestamp}`;
 
+    try {
+      this.logger.log(`[AIService] Attempting Pollinations flux image generation...`);
+      const checkRes = await axios.get(pollinationsFluxUrl, {
+        responseType: 'arraybuffer',
+        timeout: 30_000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0',
+          Accept: 'image/*',
+        },
+      });
+      if (checkRes.status === 200 && checkRes.data?.byteLength > 1000) {
+        const durationMs = Date.now() - startedAt;
+        this.logger.log(`[AIService] Pollinations flux succeeded in ${durationMs}ms`);
+        return { success: true, imageUrl: pollinationsFluxUrl, model: 'pollinations-flux' };
+      }
+    } catch (polErr: any) {
+      this.logger.warn(`[AIService] Pollinations flux failed: ${polErr.message}. Falling back to Pollinations turbo...`);
+    }
+
+    // ── Tier 3: Pollinations AI — turbo model (fastest) ─────────────────────
+    const pollinationsTurboUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=${width}&height=${height}&nologo=true&model=turbo&seed=${timestamp}`;
     const durationMs = Date.now() - startedAt;
-    this.logger.log(`[AIService] Generated AI image URL (${width}x${height}) in ${durationMs}ms: "${cleanPrompt.substring(0, 90)}..."`);
-
-    return {
-      success: true,
-      imageUrl,
-      model: 'pollinations-flux',
-    };
+    this.logger.warn(`[AIService] All primary image providers failed. Using Pollinations turbo URL as final fallback. Duration: ${durationMs}ms`);
+    return { success: true, imageUrl: pollinationsTurboUrl, model: 'pollinations-turbo' };
   }
 
   private buildResponse<T>(
